@@ -4,7 +4,7 @@
 
 - Ubuntu Linux
 - Python 3.8+
-- Node.js 16+
+- Node.js 18+（Vite 5 要求）
 - npm
 
 ## 首次部署
