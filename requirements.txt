@@ -1,0 +1,8 @@
+flask==2.3.3
+flask-cors==6.0.2
+openai==0.28.0
+requests==2.33.1
+python-dotenv==1.2.2
+PyJWT==2.12.1
+captcha==0.7.1
+gunicorn==22.0.0

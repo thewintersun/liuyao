@@ -1,0 +1,21 @@
+[Unit]
+Description=Liuyao AI Divination (Gunicorn)
+After=network.target
+
+[Service]
+# ===== 请根据实际情况修改以下三行 =====
+User=ubuntu
+WorkingDirectory=/home/ubuntu/web
+ExecStart=/home/ubuntu/web/venv/bin/gunicorn -c gunicorn.conf.py gua_app:app
+# ==========================================
+
+ExecReload=/bin/kill -HUP $MAINPID
+KillMode=mixed
+Restart=on-failure
+RestartSec=5
+
+# 环境变量：从 .env 文件加载（Python load_dotenv 也会加载，此处是双保险）
+# EnvironmentFile=/home/ubuntu/web/.env
+
+[Install]
+WantedBy=multi-user.target
