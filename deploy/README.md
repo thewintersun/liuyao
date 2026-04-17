@@ -155,6 +155,56 @@ SQLite 的 `ALTER TABLE` 只支持 **ADD COLUMN**，不支持删除列、重命�
 
 这类破坏性迁移建议先在本地测试，确认无误后再部署。
 
+## 崩溃自动重启与日志排查
+
+### 自动重启
+
+`liuyao.service` 中配置了 `Restart=on-failure`，服务异常崩溃时 systemd 会在 5 秒后自动重启。手动执行 `systemctl stop` 不会触发自动重启。
+
+### 查看日志
+
+```bash
+# 查看最近的日志（最后 100 行）
+sudo journalctl -u liuyao -n 100
+
+# 查看实时日志（类似 tail -f）
+sudo journalctl -u liuyao -f
+
+# 查看今天的日志
+sudo journalctl -u liuyao --since today
+
+# 查看某个时间段的日志
+sudo journalctl -u liuyao --since "2026-04-17 18:00" --until "2026-04-17 20:00"
+```
+
+### 崩溃日志特征
+
+崩溃重启时，日志中会出现类似以下内容：
+
+```
+liuyao.service: Main process exited, code=exited, status=1/FAILURE
+liuyao.service: Failed with result 'exit-code'.
+liuyao.service: Scheduled restart job, restart counter is at 1.
+liuyao.service: Started Liuyao AI Divination (Gunicorn).
+```
+
+Python 的 traceback 堆栈信息也会被 journalctl 捕获，可以直接定位崩溃原因。
+
+### 停止与禁用服务
+
+```bash
+# 停止服务（不触发自动重启）
+sudo systemctl stop liuyao
+
+# 永久禁用（停止 + 开机不自启）
+sudo systemctl stop liuyao
+sudo systemctl disable liuyao
+
+# 恢复启用
+sudo systemctl enable liuyao
+sudo systemctl start liuyao
+```
+
 ## 关键配置文件
 
 | 文件 | 说明 |
