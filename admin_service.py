@@ -311,7 +311,7 @@ def get_usage_logs(page=1, per_page=20, username=None, date_from=None, date_to=N
             l.session_id,
             l.ip,
             u.username,
-            MIN(l.created_at) as created_at,
+            datetime(MIN(l.created_at), 'localtime') as created_at,
             COUNT(*) as use_count,
             GROUP_CONCAT(l.action, ',') as actions
         FROM usage_log l
