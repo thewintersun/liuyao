@@ -13,3 +13,10 @@ if not JWT_SECRET:
 
 # JWT 过期时间（秒），30天
 JWT_EXPIRY = 30 * 24 * 3600
+
+# 邀请奖励配置
+INVITE_VISIT_REWARD = 5        # 游客点开邀请链接，邀请人获得额度
+INVITE_REGISTER_REWARD = 20    # 被邀请人注册成功，邀请人获得额度
+INVITE_REGISTER_BONUS = 20     # 被邀请人注册成功，被邀请人获得额度
+INVITE_MONTHLY_LIMIT = 20      # 每用户每月邀请上限（游客+注册合计）
+INVITE_IP_DAILY_LIMIT = 3      # 同一 IP 24h 内最多触发访问奖励次数

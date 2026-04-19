@@ -39,7 +39,7 @@
       </div>
     </div>
 
-    <p class="hint-text">{{ $t('每次AI解卦或追问消耗1次额度，排盘计算不消耗额度') }}</p>
+    <p class="hint-text">{{ $t('每次解卦或追问消耗1次额度，排盘计算不消耗额度') }}</p>
 
     <div class="section-title" @click="showChangePwd = !showChangePwd">
       {{ $t('修改密码') }}
@@ -53,8 +53,6 @@
         {{ pwdLoading ? $t('提交中...') : $t('确认修改') }}
       </button>
     </div>
-
-    <button class="btn-logout" @click="handleLogout">{{ $t('退出登录') }}</button>
   </div>
 </template>
 
@@ -150,11 +148,6 @@ async function handleChangePwd() {
   }
 }
 
-function handleLogout() {
-  localStorage.removeItem('liuyao_token')
-  localStorage.removeItem('liuyao_user')
-  router.replace('/settings')
-}
 </script>
 
 <style scoped>
@@ -296,15 +289,5 @@ function handleLogout() {
 }
 .btn-submit:disabled {
   opacity: 0.5;
-}
-.btn-logout {
-  width: 100%;
-  height: 44px;
-  background: transparent;
-  color: var(--color-danger);
-  border: 1px solid var(--color-danger);
-  border-radius: 4px;
-  font-size: 15px;
-  cursor: pointer;
 }
 </style>

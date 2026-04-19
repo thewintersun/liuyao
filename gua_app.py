@@ -22,8 +22,8 @@ from llm.common.config import LIUYAO_PROMPT
 from auth import (init_db, register_user, login_user, get_user_info, check_credit, use_credit, log_usage, require_auth, optional_auth, require_admin,
                   get_user_records, get_user_record_by_id, create_user_record, update_user_record, delete_user_record,
                   change_password, change_email, create_reset_token, validate_reset_token, reset_password_with_token,
-                  save_conversation)
-from config import GUEST_FREE_USES
+                  save_conversation, process_invite_visit, get_invite_stats)
+from config import GUEST_FREE_USES, REGISTERED_FREE_USES
 from rate_limiter import limiter, get_client_ip
 import admin_service
 
@@ -128,6 +128,7 @@ def api_register():
         agreed_version=terms_version,
         agreed_at=agreed_at,
         agreed_ip=agreed_ip,
+        invite_code=data.get('invite_code'),
     )
     if error:
         return jsonify({"error": error}), 400
@@ -185,7 +186,17 @@ def api_change_email():
 @app.route('/api/config/quota', methods=['GET'])
 def api_quota():
     guest_uses = admin_service.get_system_config('GUEST_FREE_USES')
-    return jsonify({"guest_free_uses": int(guest_uses) if guest_uses else GUEST_FREE_USES})
+    registered_uses = admin_service.get_system_config('REGISTERED_FREE_USES')
+    invite_visit = admin_service.get_system_config('INVITE_VISIT_REWARD')
+    invite_register = admin_service.get_system_config('INVITE_REGISTER_REWARD')
+    invite_bonus = admin_service.get_system_config('INVITE_REGISTER_BONUS')
+    return jsonify({
+        "guest_free_uses": int(guest_uses) if guest_uses else GUEST_FREE_USES,
+        "registered_free_uses": int(registered_uses) if registered_uses else REGISTERED_FREE_USES,
+        "invite_visit_reward": int(invite_visit) if invite_visit else 5,
+        "invite_register_reward": int(invite_register) if invite_register else 20,
+        "invite_register_bonus": int(invite_bonus) if invite_bonus else 20,
+    })
 
 
 # ========== 记录接口 ==========
@@ -262,12 +273,13 @@ def receive_data():
 
     # LLM 成功后才扣减额度 / 记录日志 / 保存对话
     remaining_uses = None
+    ip = get_client_ip(request)
     if llm_success:
         if g.user_id:
-            _, remaining = use_credit(g.user_id, 'receive', session_id)
+            _, remaining = use_credit(g.user_id, 'receive', session_id, ip=ip)
             remaining_uses = remaining
         else:
-            log_usage('receive', session_id)
+            log_usage('receive', session_id, ip=ip)
 
         # 自动持久化对话到 conversations 表
         messages_json = _extract_messages_json(session_id)
@@ -311,6 +323,7 @@ def receive_data_async():
     user_id = g.user_id
     data = request.get_json()
     lang = request.headers.get('X-Lang', 'zh-CN')
+    ip = get_client_ip(request)
 
     task_id = str(uuid.uuid4())[:16]
     with _async_tasks_lock:
@@ -332,10 +345,10 @@ def receive_data_async():
             remaining_uses = None
             if llm_success:
                 if user_id:
-                    _, remaining = use_credit(user_id, 'receive', session_id)
+                    _, remaining = use_credit(user_id, 'receive', session_id, ip=ip)
                     remaining_uses = remaining
                 else:
-                    log_usage('receive', session_id)
+                    log_usage('receive', session_id, ip=ip)
 
                 messages_json = _extract_messages_json(session_id)
                 if messages_json:
@@ -384,6 +397,7 @@ def chat_async():
     session_id = data.get('session_id', '')
     message = data.get('message', '')
     lang = request.headers.get('X-Lang', 'zh-CN')
+    ip = get_client_ip(request)
 
     if g.user_id and not check_credit(g.user_id):
         return jsonify({"error": "no_credit", "message": "额度已用完"}), 403
@@ -404,10 +418,10 @@ def chat_async():
             remaining_uses = None
             if llm_success:
                 if user_id:
-                    _, remaining = use_credit(user_id, 'chat', session_id)
+                    _, remaining = use_credit(user_id, 'chat', session_id, ip=ip)
                     remaining_uses = remaining
                 else:
-                    log_usage('chat', session_id)
+                    log_usage('chat', session_id, ip=ip)
 
                 messages_json = _extract_messages_json(session_id)
                 if messages_json:
@@ -476,12 +490,13 @@ def chat():
 
     # LLM 成功后才扣减额度 / 记录日志 / 更新对话
     remaining_uses = None
+    ip = get_client_ip(request)
     if llm_success:
         if g.user_id:
-            _, remaining = use_credit(g.user_id, 'chat', session_id)
+            _, remaining = use_credit(g.user_id, 'chat', session_id, ip=ip)
             remaining_uses = remaining
         else:
-            log_usage('chat', session_id)
+            log_usage('chat', session_id, ip=ip)
 
         # 自动更新对话到 conversations 表
         messages_json = _extract_messages_json(session_id)
@@ -567,6 +582,36 @@ def feedback():
         "status": "success",
         "message": "反馈已收到"
     })
+
+
+# ========== 邀请接口 ==========
+
+@app.route('/api/invite/visit', methods=['POST'])
+def api_invite_visit():
+    """游客访问邀请链接时调用"""
+    ip = get_client_ip(request)
+    if not limiter.is_allowed(f"invite_visit:{ip}", 10, 3600):
+        return jsonify({"error": "请求过于频繁，请稍后再试"}), 429
+    if not request.is_json:
+        return jsonify({"error": "请求必须是 JSON 格式"}), 400
+    data = request.get_json()
+    code = data.get('code', '')
+    if not code:
+        return jsonify({"error": "邀请码不能为空"}), 400
+    success, error = process_invite_visit(code, ip)
+    if not success:
+        return jsonify({"error": error}), 400
+    return jsonify({"status": "success"})
+
+
+@app.route('/api/invite/stats', methods=['GET'])
+@require_auth
+def api_invite_stats():
+    """获取当前用户的邀请统计"""
+    stats = get_invite_stats(g.user_id)
+    if not stats:
+        return jsonify({"error": "用户不存在"}), 404
+    return jsonify({"status": "success", **stats})
 
 
 # ========== 密码重置接口 ==========

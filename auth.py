@@ -8,7 +8,9 @@ from flask import request, g, jsonify
 from werkzeug.security import generate_password_hash, check_password_hash
 import re
 import jwt
-from config import JWT_SECRET, JWT_EXPIRY, REGISTERED_FREE_USES, GUEST_FREE_USES
+from config import (JWT_SECRET, JWT_EXPIRY, REGISTERED_FREE_USES, GUEST_FREE_USES,
+                     INVITE_VISIT_REWARD, INVITE_REGISTER_REWARD, INVITE_REGISTER_BONUS,
+                     INVITE_MONTHLY_LIMIT, INVITE_IP_DAILY_LIMIT)
 
 EMAIL_RE = re.compile(r'^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$')
 
@@ -19,6 +21,27 @@ def get_db():
     db = sqlite3.connect(DB_PATH)
     db.row_factory = sqlite3.Row
     return db
+
+
+def generate_invite_code(db=None):
+    """生成唯一 6 位邀请码（大写字母+数字）"""
+    import random
+    import string
+    chars = string.ascii_uppercase + string.digits
+    close_db = False
+    if db is None:
+        db = get_db()
+        close_db = True
+    for _ in range(100):
+        code = ''.join(random.choices(chars, k=6))
+        existing = db.execute('SELECT id FROM users WHERE invite_code = ?', (code,)).fetchone()
+        if not existing:
+            if close_db:
+                db.close()
+            return code
+    if close_db:
+        db.close()
+    return secrets.token_hex(3).upper()[:6]
 
 
 def init_db():
@@ -95,6 +118,13 @@ def init_db():
         except Exception:
             pass  # 列已存在
 
+    # 数据库迁移：usage_log 添加 ip 字段
+    try:
+        db.execute("ALTER TABLE usage_log ADD COLUMN ip TEXT")
+        db.commit()
+    except Exception:
+        pass  # 列已存在
+
     # 初始化协议版本号（若不存在）
     try:
         db.execute(
@@ -130,6 +160,40 @@ def init_db():
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )''')
 
+    # 数据库迁移：添加邀请相关字段
+    for col, col_type in [
+        ('invite_code', 'TEXT'),
+        ('invited_by', 'INTEGER'),
+    ]:
+        try:
+            db.execute(f"ALTER TABLE users ADD COLUMN {col} {col_type}")
+            db.commit()
+        except Exception:
+            pass  # 列已存在
+
+    # 为已有用户补生成 invite_code
+    try:
+        users_without_code = db.execute('SELECT id FROM users WHERE invite_code IS NULL').fetchall()
+        for u in users_without_code:
+            code = generate_invite_code(db)
+            db.execute('UPDATE users SET invite_code = ? WHERE id = ?', (code, u['id']))
+        if users_without_code:
+            db.commit()
+    except Exception:
+        pass
+
+    # 新建 invite_records 表
+    db.execute('''CREATE TABLE IF NOT EXISTS invite_records (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        inviter_id INTEGER NOT NULL,
+        type TEXT NOT NULL,
+        visitor_ip TEXT,
+        invitee_id INTEGER,
+        reward INTEGER DEFAULT 0,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (inviter_id) REFERENCES users(id)
+    )''')
+
     # 新建 conversations 表（对话自动持久化）
     db.execute('''CREATE TABLE IF NOT EXISTS conversations (
         session_id TEXT PRIMARY KEY,
@@ -146,7 +210,7 @@ def init_db():
     db.close()
 
 
-def register_user(username, password, email=None, agreed_version=None, agreed_at=None, agreed_ip=None):
+def register_user(username, password, email=None, agreed_version=None, agreed_at=None, agreed_ip=None, invite_code=None):
     if not username or not password:
         return None, '用户名和密码不能为空'
     if len(username) < 2 or len(username) > 20:
@@ -164,12 +228,27 @@ def register_user(username, password, email=None, agreed_version=None, agreed_at
         row = db.execute("SELECT value FROM system_config WHERE key = 'REGISTERED_FREE_USES'").fetchone()
         free_uses = int(row['value']) if row else REGISTERED_FREE_USES
 
+        # 查找邀请人
+        inviter = None
+        if invite_code and invite_code.strip():
+            inviter = db.execute('SELECT id FROM users WHERE invite_code = ?', (invite_code.strip().upper(),)).fetchone()
+
+        # 生成新用户的邀请码
+        new_invite_code = generate_invite_code(db)
+
         db.execute(
-            'INSERT INTO users (username, password_hash, free_uses, email, agreed_version, agreed_at, agreed_ip) VALUES (?, ?, ?, ?, ?, ?, ?)',
-            (username, generate_password_hash(password), free_uses, email.strip(), agreed_version, agreed_at, agreed_ip)
+            'INSERT INTO users (username, password_hash, free_uses, email, agreed_version, agreed_at, agreed_ip, invite_code, invited_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+            (username, generate_password_hash(password), free_uses, email.strip(), agreed_version, agreed_at, agreed_ip, new_invite_code, inviter['id'] if inviter else None)
         )
         db.commit()
         user = db.execute('SELECT * FROM users WHERE username = ?', (username,)).fetchone()
+
+        # 处理邀请注册奖励
+        if inviter:
+            _process_invite_register_reward(db, inviter['id'], user['id'])
+            # 重新读取 user 以获取可能增加的额度
+            user = db.execute('SELECT * FROM users WHERE id = ?', (user['id'],)).fetchone()
+
         token = _generate_token(user['id'], user['username'], user['token_version'] or 0)
         return {
             'token': token,
@@ -252,18 +331,18 @@ def check_credit(user_id):
     return bool(user and user['free_uses'] > 0)
 
 
-def log_usage(action, session_id=None, user_id=None):
+def log_usage(action, session_id=None, user_id=None, ip=None):
     """仅记录使用日志，不扣减额度（用于游客等场景）"""
     db = get_db()
     db.execute(
-        'INSERT INTO usage_log (user_id, action, session_id) VALUES (?, ?, ?)',
-        (user_id, action, session_id)
+        'INSERT INTO usage_log (user_id, action, session_id, ip) VALUES (?, ?, ?, ?)',
+        (user_id, action, session_id, ip)
     )
     db.commit()
     db.close()
 
 
-def use_credit(user_id, action, session_id=None):
+def use_credit(user_id, action, session_id=None, ip=None):
     db = get_db()
     user = db.execute('SELECT free_uses FROM users WHERE id = ?', (user_id,)).fetchone()
     if not user or user['free_uses'] <= 0:
@@ -271,8 +350,8 @@ def use_credit(user_id, action, session_id=None):
         return False, 0
     db.execute('UPDATE users SET free_uses = free_uses - 1 WHERE id = ?', (user_id,))
     db.execute(
-        'INSERT INTO usage_log (user_id, action, session_id) VALUES (?, ?, ?)',
-        (user_id, action, session_id)
+        'INSERT INTO usage_log (user_id, action, session_id, ip) VALUES (?, ?, ?, ?)',
+        (user_id, action, session_id, ip)
     )
     db.commit()
     remaining = db.execute('SELECT free_uses FROM users WHERE id = ?', (user_id,)).fetchone()['free_uses']
@@ -632,6 +711,132 @@ def get_ip_location(ip):
 
 
 # ========== 对话持久化 ==========
+
+def _get_config_int(db, key, default):
+    """从 system_config 读取整数配置，fallback 到默认值"""
+    row = db.execute("SELECT value FROM system_config WHERE key = ?", (key,)).fetchone()
+    return int(row['value']) if row else default
+
+
+def _get_monthly_invite_count(db, inviter_id):
+    """获取邀请人当月邀请记录数"""
+    return db.execute(
+        "SELECT COUNT(*) as cnt FROM invite_records WHERE inviter_id = ? AND created_at >= date('now', 'start of month')",
+        (inviter_id,)
+    ).fetchone()['cnt']
+
+
+def _process_invite_register_reward(db, inviter_id, invitee_id):
+    """处理邀请注册奖励：检查月度上限 → 双方加额度 → 写记录"""
+    monthly_limit = _get_config_int(db, 'INVITE_MONTHLY_LIMIT', INVITE_MONTHLY_LIMIT)
+    current_count = _get_monthly_invite_count(db, inviter_id)
+    if current_count >= monthly_limit:
+        return  # 已达月度上限
+
+    inviter_reward = _get_config_int(db, 'INVITE_REGISTER_REWARD', INVITE_REGISTER_REWARD)
+    invitee_bonus = _get_config_int(db, 'INVITE_REGISTER_BONUS', INVITE_REGISTER_BONUS)
+
+    # 邀请人加额度
+    db.execute('UPDATE users SET free_uses = free_uses + ? WHERE id = ?', (inviter_reward, inviter_id))
+    # 被邀请人加额度
+    db.execute('UPDATE users SET free_uses = free_uses + ? WHERE id = ?', (invitee_bonus, invitee_id))
+    # 写记录
+    db.execute(
+        'INSERT INTO invite_records (inviter_id, type, invitee_id, reward) VALUES (?, ?, ?, ?)',
+        (inviter_id, 'register', invitee_id, inviter_reward)
+    )
+    db.commit()
+
+
+def process_invite_visit(invite_code, visitor_ip):
+    """处理游客访问邀请链接奖励"""
+    if not invite_code or not invite_code.strip():
+        return False, '邀请码不能为空'
+
+    db = get_db()
+    try:
+        # 查找邀请人
+        inviter = db.execute('SELECT id FROM users WHERE invite_code = ?', (invite_code.strip().upper(),)).fetchone()
+        if not inviter:
+            return False, '邀请码无效'
+
+        # 检查 IP 24h 限流
+        ip_daily_limit = _get_config_int(db, 'INVITE_IP_DAILY_LIMIT', INVITE_IP_DAILY_LIMIT)
+        ip_count = db.execute(
+            "SELECT COUNT(*) as cnt FROM invite_records WHERE type = 'visit' AND visitor_ip = ? AND created_at >= datetime('now', '-24 hours')",
+            (visitor_ip,)
+        ).fetchone()['cnt']
+        if ip_count >= ip_daily_limit:
+            return False, 'IP 访问奖励已达上限'
+
+        # 检查月度上限
+        monthly_limit = _get_config_int(db, 'INVITE_MONTHLY_LIMIT', INVITE_MONTHLY_LIMIT)
+        current_count = _get_monthly_invite_count(db, inviter['id'])
+        if current_count >= monthly_limit:
+            return False, '邀请人本月邀请已达上限'
+
+        visit_reward = _get_config_int(db, 'INVITE_VISIT_REWARD', INVITE_VISIT_REWARD)
+
+        # 邀请人加额度
+        db.execute('UPDATE users SET free_uses = free_uses + ? WHERE id = ?', (visit_reward, inviter['id']))
+        # 写记录
+        db.execute(
+            'INSERT INTO invite_records (inviter_id, type, visitor_ip, reward) VALUES (?, ?, ?, ?)',
+            (inviter['id'], 'visit', visitor_ip, visit_reward)
+        )
+        db.commit()
+        return True, None
+    finally:
+        db.close()
+
+
+def get_invite_stats(user_id):
+    """查询用户的邀请统计和记录列表"""
+    db = get_db()
+    try:
+        user = db.execute('SELECT invite_code FROM users WHERE id = ?', (user_id,)).fetchone()
+        if not user:
+            return None
+
+        # 本月统计
+        monthly_count = _get_monthly_invite_count(db, user_id)
+        monthly_reward = db.execute(
+            "SELECT COALESCE(SUM(reward), 0) as total FROM invite_records WHERE inviter_id = ? AND created_at >= date('now', 'start of month')",
+            (user_id,)
+        ).fetchone()['total']
+
+        # 总统计
+        total_count = db.execute(
+            'SELECT COUNT(*) as cnt FROM invite_records WHERE inviter_id = ?', (user_id,)
+        ).fetchone()['cnt']
+        total_reward = db.execute(
+            'SELECT COALESCE(SUM(reward), 0) as total FROM invite_records WHERE inviter_id = ?', (user_id,)
+        ).fetchone()['total']
+
+        # 最近 50 条记录
+        records = db.execute(
+            '''SELECT ir.type, ir.visitor_ip, ir.reward, ir.created_at, u.username as invitee_name
+               FROM invite_records ir
+               LEFT JOIN users u ON ir.invitee_id = u.id
+               WHERE ir.inviter_id = ?
+               ORDER BY ir.id DESC LIMIT 50''',
+            (user_id,)
+        ).fetchall()
+
+        monthly_limit = _get_config_int(db, 'INVITE_MONTHLY_LIMIT', INVITE_MONTHLY_LIMIT)
+
+        return {
+            'invite_code': user['invite_code'],
+            'monthly_count': monthly_count,
+            'monthly_reward': monthly_reward,
+            'monthly_limit': monthly_limit,
+            'total_count': total_count,
+            'total_reward': total_reward,
+            'records': [dict(r) for r in records]
+        }
+    finally:
+        db.close()
+
 
 def save_conversation(session_id, user_id, messages_json, gua_xiang_info=None, category=None, background=None):
     """自动保存/更新对话到 conversations 表"""

@@ -50,6 +50,17 @@
       </p>
     </div>
 
+    <div class="form-group" v-if="!isLogin">
+      <input
+        v-model="inviteCode"
+        type="text"
+        class="form-input"
+        :placeholder="$t('邀请码（选填）')"
+        maxlength="6"
+        @keydown.enter="handleSubmit"
+      />
+    </div>
+
     <div class="form-group captcha-row" v-if="!isLogin">
       <img
         v-if="captchaImage"
@@ -103,7 +114,7 @@
     </p>
 
     <p class="hint-text" v-if="!isLogin">
-      {{ $t('注册后可获得') }}{{ registeredUses }}{{ $t('次免费AI解卦额度') }}
+      {{ $t('注册后可获得') }}{{ registeredUses }}{{ $t('次免费解卦额度') }}
     </p>
   </div>
 </template>
@@ -123,6 +134,7 @@ const confirmPassword = ref('')
 const captchaId = ref('')
 const captchaText = ref('')
 const captchaImage = ref('')
+const inviteCode = ref('')
 const loading = ref(false)
 const agreedTerms = ref(false)
 const showTermsDialog = ref(false)
@@ -135,6 +147,11 @@ onMounted(async () => {
   if (localStorage.getItem('liuyao_token')) {
     router.replace('/account')
     return
+  }
+  // 从 sessionStorage 自动填入邀请码
+  const refCode = sessionStorage.getItem('liuyao_ref_code')
+  if (refCode) {
+    inviteCode.value = refCode
   }
   try {
     const res = await getQuotaConfig()
@@ -216,12 +233,14 @@ async function handleSubmit() {
   try {
     const result = isLogin.value
       ? await login(username.value.trim(), password.value)
-      : await register(username.value.trim(), password.value, email.value.trim(), captchaId.value, captchaText.value.trim(), agreedTerms.value)
+      : await register(username.value.trim(), password.value, email.value.trim(), captchaId.value, captchaText.value.trim(), agreedTerms.value, inviteCode.value.trim())
     if (result.status === 'success') {
       localStorage.setItem('liuyao_token', result.token)
       localStorage.setItem('liuyao_user', JSON.stringify(result.user))
       // 登录成功后清除游客计数
       localStorage.removeItem('liuyao_guest_uses')
+      // 注册成功后清除邀请码
+      sessionStorage.removeItem('liuyao_ref_code')
       router.replace('/account')
     } else {
       alert(result.error || t('操作失败'))

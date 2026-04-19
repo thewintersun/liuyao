@@ -1,7 +1,9 @@
 """管理后台业务逻辑"""
 import json
 from auth import get_db, reset_password, get_ip_location
-from config import GUEST_FREE_USES, REGISTERED_FREE_USES
+from config import (GUEST_FREE_USES, REGISTERED_FREE_USES,
+                     INVITE_VISIT_REWARD, INVITE_REGISTER_REWARD, INVITE_REGISTER_BONUS,
+                     INVITE_MONTHLY_LIMIT, INVITE_IP_DAILY_LIMIT)
 from llm.common.config import SYSTEM_PROMPT, LIUYAO_PROMPT
 
 
@@ -147,6 +149,11 @@ def get_system_config(key):
     defaults = {
         'GUEST_FREE_USES': str(GUEST_FREE_USES),
         'REGISTERED_FREE_USES': str(REGISTERED_FREE_USES),
+        'INVITE_VISIT_REWARD': str(INVITE_VISIT_REWARD),
+        'INVITE_REGISTER_REWARD': str(INVITE_REGISTER_REWARD),
+        'INVITE_REGISTER_BONUS': str(INVITE_REGISTER_BONUS),
+        'INVITE_MONTHLY_LIMIT': str(INVITE_MONTHLY_LIMIT),
+        'INVITE_IP_DAILY_LIMIT': str(INVITE_IP_DAILY_LIMIT),
     }
     return defaults.get(key)
 
@@ -165,6 +172,11 @@ def get_all_configs():
     configs = {
         'GUEST_FREE_USES': get_system_config('GUEST_FREE_USES'),
         'REGISTERED_FREE_USES': get_system_config('REGISTERED_FREE_USES'),
+        'INVITE_VISIT_REWARD': get_system_config('INVITE_VISIT_REWARD'),
+        'INVITE_REGISTER_REWARD': get_system_config('INVITE_REGISTER_REWARD'),
+        'INVITE_REGISTER_BONUS': get_system_config('INVITE_REGISTER_BONUS'),
+        'INVITE_MONTHLY_LIMIT': get_system_config('INVITE_MONTHLY_LIMIT'),
+        'INVITE_IP_DAILY_LIMIT': get_system_config('INVITE_IP_DAILY_LIMIT'),
     }
     return configs
 
@@ -260,6 +272,7 @@ def update_feedback_status(feedback_id, status):
 # ========== 日志查看 ==========
 
 def get_usage_logs(page=1, per_page=20, username=None, date_from=None, date_to=None):
+    """按 session_id 分组查询使用日志，每个会话只显示一行"""
     db = get_db()
     offset = (page - 1) * per_page
 
@@ -280,13 +293,33 @@ def get_usage_logs(page=1, per_page=20, username=None, date_from=None, date_to=N
     if conditions:
         where_clause = 'WHERE ' + ' AND '.join(conditions)
 
+    # 按 session_id 分组（NULL session_id 每条单独一行）
     total = db.execute(
-        f'SELECT COUNT(*) as cnt FROM usage_log l LEFT JOIN users u ON l.user_id = u.id {where_clause}',
+        f'''SELECT COUNT(*) as cnt FROM (
+            SELECT COALESCE(l.session_id, 'null_' || l.id) as grp
+            FROM usage_log l LEFT JOIN users u ON l.user_id = u.id
+            {where_clause}
+            GROUP BY grp
+        )''',
         params
     ).fetchone()['cnt']
 
     rows = db.execute(
-        f'SELECT l.*, u.username FROM usage_log l LEFT JOIN users u ON l.user_id = u.id {where_clause} ORDER BY l.id DESC LIMIT ? OFFSET ?',
+        f'''SELECT
+            MIN(l.id) as id,
+            l.user_id,
+            l.session_id,
+            l.ip,
+            u.username,
+            MIN(l.created_at) as created_at,
+            COUNT(*) as use_count,
+            GROUP_CONCAT(l.action, ',') as actions
+        FROM usage_log l
+        LEFT JOIN users u ON l.user_id = u.id
+        {where_clause}
+        GROUP BY COALESCE(l.session_id, 'null_' || l.id)
+        ORDER BY MAX(l.id) DESC
+        LIMIT ? OFFSET ?''',
         params + [per_page, offset]
     ).fetchall()
 

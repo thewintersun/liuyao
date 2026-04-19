@@ -1,4 +1,4 @@
-"""Gunicorn 配置 — 六爻AI排盘"""
+"""Gunicorn 配置 — 六爻解卦"""
 import os
 
 # 监听地址

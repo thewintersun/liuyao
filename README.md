@@ -1,4 +1,4 @@
-# 六爻AI排盘 Web 应用
+# 六爻解卦 Web 应用
 
 基于 iOS 原生应用移植的六爻排盘 + AI 解卦 Web 版本。前端使用 Vue 3，后端使用 Flask，AI 解卦基于 DeepSeek 大语言模型。
 

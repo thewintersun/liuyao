@@ -1,6 +1,6 @@
 <template>
   <!-- 微信内置浏览器引导遮罩 -->
-  <div v-if="showWechatGuide" class="wechat-guide-overlay" @click="showWechatGuide = false">
+  <div v-if="showWechatGuide" class="wechat-guide-overlay">
     <div class="wechat-guide-arrow">
       <svg width="40" height="40" viewBox="0 0 40 40" fill="none">
         <path d="M20 36V8" stroke="#F9D47C" stroke-width="3" stroke-linecap="round"/>
@@ -8,6 +8,8 @@
       </svg>
     </div>
     <div class="wechat-guide-content">
+      <p class="wechat-guide-title">推荐使用系统浏览器打开</p>
+      <p class="wechat-guide-subtitle">体验更流畅，功能更完整</p>
       <div class="wechat-guide-step">
         <span class="wechat-guide-num">1</span>
         点击右上角 <span class="wechat-guide-highlight">···</span> 按钮
@@ -16,7 +18,7 @@
         <span class="wechat-guide-num">2</span>
         选择 <span class="wechat-guide-highlight">在浏览器中打开</span>
       </div>
-      <div class="wechat-guide-tip">点击任意位置关闭提示</div>
+      <button class="wechat-guide-continue" @click="showWechatGuide = false">继续使用当前浏览器</button>
     </div>
   </div>
 
@@ -35,6 +37,7 @@
 import { ref, onMounted } from 'vue'
 import TabBar from './components/TabBar.vue'
 import NavBar from './components/NavBar.vue'
+import { reportInviteVisit } from './api/index.js'
 
 const showWechatGuide = ref(false)
 
@@ -42,6 +45,20 @@ onMounted(() => {
   const ua = navigator.userAgent.toLowerCase()
   if (ua.includes('micromessenger')) {
     showWechatGuide.value = true
+  }
+
+  // 检测邀请链接参数 ?ref=XXXXXX
+  const urlParams = new URLSearchParams(window.location.search)
+  const refCode = urlParams.get('ref')
+  if (refCode) {
+    sessionStorage.setItem('liuyao_ref_code', refCode)
+    // 通知后端（游客访问奖励）
+    reportInviteVisit(refCode).catch(() => {})
+    // 清除 URL 中的 ref 参数
+    urlParams.delete('ref')
+    const newSearch = urlParams.toString()
+    const newUrl = window.location.pathname + (newSearch ? '?' + newSearch : '') + window.location.hash
+    history.replaceState(null, '', newUrl)
   }
 })
 </script>
@@ -100,6 +117,19 @@ onMounted(() => {
   padding: 0 24px;
 }
 
+.wechat-guide-title {
+  color: #fff;
+  font-size: 22px;
+  font-weight: bold;
+  margin-bottom: 6px;
+}
+
+.wechat-guide-subtitle {
+  color: #aaa;
+  font-size: 14px;
+  margin-bottom: 28px;
+}
+
 .wechat-guide-step {
   color: #fff;
   font-size: 20px;
@@ -129,10 +159,15 @@ onMounted(() => {
   font-weight: bold;
 }
 
-.wechat-guide-tip {
-  color: #888;
-  font-size: 14px;
+.wechat-guide-continue {
   margin-top: 40px;
+  background: transparent;
+  color: #666;
+  border: 1px solid #444;
+  border-radius: 4px;
+  padding: 10px 24px;
+  font-size: 14px;
+  cursor: pointer;
 }
 
 /* PC 端宽屏适配 */

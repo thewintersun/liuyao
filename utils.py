@@ -52,10 +52,10 @@ def send_email(subject, message, to_email=None):
 
 def send_reset_email(to_email, reset_url):
     """发送密码重置邮件"""
-    subject = "六爻AI排盘 — 密码重置"
+    subject = "六爻解卦 — 密码重置"
     message = f"""您好，
 
-您正在申请重置六爻AI排盘的登录密码。
+您正在申请重置六爻解卦的登录密码。
 
 请点击以下链接重置密码（30分钟内有效）：
 {reset_url}

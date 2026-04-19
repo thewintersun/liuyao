@@ -30,6 +30,7 @@ const titleMap = {
   '/forgot-password': '找回密码',
   '/reset-password': '重置密码',
   '/account': '账户',
+  '/invite': '邀请好友',
   '/admin': '后台管理',
   '/admin/users': '用户管理',
   '/admin/config': '系统设置',

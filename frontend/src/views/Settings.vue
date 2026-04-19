@@ -23,6 +23,10 @@
         <span class="menu-title">{{ $t('建议反馈') }}</span>
         <span class="menu-arrow">&#8250;</span>
       </div>
+      <div class="menu-item" v-if="isLoggedIn" @click="$router.push('/invite')">
+        <span class="menu-title">{{ $t('邀请好友得额度') }}</span>
+        <span class="menu-arrow">&#8250;</span>
+      </div>
       <div class="menu-item" @click="showLangPicker = true">
         <span class="menu-title">{{ $t('语言') }} / Language</span>
         <span class="menu-extra">{{ currentLangLabel }}</span>

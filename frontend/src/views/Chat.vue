@@ -34,7 +34,7 @@
     <div class="limit-overlay" v-if="showLimitDialog" @click.self="showLimitDialog = false">
       <div class="limit-dialog">
         <p class="limit-title">{{ $t('免费次数已用完') }}</p>
-        <p class="limit-desc">{{ $t('注册账号可获得更多免费AI解卦额度') }}</p>
+        <p class="limit-desc">{{ $t('注册账号可获得更多免费解卦额度') }}</p>
         <button class="btn-primary" @click="goRegister">{{ $t('去注册') }}</button>
         <p class="limit-cancel" @click="showLimitDialog = false">{{ $t('取消') }}</p>
       </div>

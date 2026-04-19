@@ -46,8 +46,8 @@
         @click="log.session_id && goDetail(log.session_id)"
       >
         <div class="log-header">
-          <span class="log-user">{{ log.username || (log.user_id ? ('ID:' + log.user_id) : $t('游客')) }}</span>
-          <span class="log-action">{{ log.action }}</span>
+          <span class="log-user">{{ formatUser(log) }}</span>
+          <span class="log-action">{{ formatAction(log) }}</span>
         </div>
         <div class="log-meta">
           <span v-if="log.session_id" class="log-session">{{ log.session_id }}</span>
@@ -150,6 +150,24 @@ function doFilter() {
 function changePage(p) {
   page.value = p
   loadLogs()
+}
+
+function formatUser(log) {
+  if (log.username) return log.username
+  if (log.user_id) return 'ID:' + log.user_id
+  if (log.ip) return t('游客') + ' (' + log.ip + ')'
+  return t('游客')
+}
+
+function formatAction(log) {
+  const count = log.use_count || 1
+  const hasReceive = log.actions && log.actions.includes('receive')
+  const chatCount = count - (hasReceive ? 1 : 0)
+  if (count <= 1) return hasReceive ? t('解卦') : t('追问')
+  let parts = []
+  if (hasReceive) parts.push(t('解卦'))
+  if (chatCount > 0) parts.push(chatCount + t('次追问'))
+  return parts.join(' + ')
 }
 
 function goDetail(sessionId) {

@@ -48,10 +48,10 @@ export async function getCaptcha() {
   return response.data
 }
 
-export async function register(username, password, email, captchaId, captchaText, agreed = false) {
-  const response = await api.post('/api/auth/register', {
-    username, password, email, captcha_id: captchaId, captcha_text: captchaText, agreed
-  })
+export async function register(username, password, email, captchaId, captchaText, agreed = false, inviteCode = '') {
+  const data = { username, password, email, captcha_id: captchaId, captcha_text: captchaText, agreed }
+  if (inviteCode) data.invite_code = inviteCode
+  const response = await api.post('/api/auth/register', data)
   return response.data
 }
 
@@ -150,6 +150,18 @@ export async function submitFeedback(feedback, contact) {
       contact: contact || '未提供'
     }
   })
+}
+
+// ========== 邀请接口 ==========
+
+export async function reportInviteVisit(code) {
+  const response = await api.post('/api/invite/visit', { code })
+  return response.data
+}
+
+export async function getInviteStats() {
+  const response = await api.get('/api/invite/stats')
+  return response.data
 }
 
 // ========== 记录接口 ==========

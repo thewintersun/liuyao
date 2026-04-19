@@ -15,13 +15,23 @@
 
     <p class="disclaimer-text">{{ $t('* 注: 结果AI辅助生成,仅供学习和娱乐') }}</p>
 
-    <!-- 次数限制弹窗 -->
+    <!-- 游客次数限制弹窗 -->
     <div class="loading-overlay" v-if="showLimitDialog" @click.self="showLimitDialog = false">
       <div class="limit-dialog">
         <p class="limit-title">{{ $t('免费次数已用完') }}</p>
-        <p class="limit-desc">{{ $t('注册账号可获得更多免费AI解卦额度') }}</p>
+        <p class="limit-desc">{{ $t('注册账号可获得') + registeredFreeUses + $t('次免费解卦额度') }}</p>
         <button class="btn-primary" @click="goRegister">{{ $t('去注册') }}</button>
         <p class="limit-cancel" @click="showLimitDialog = false">{{ $t('取消') }}</p>
+      </div>
+    </div>
+
+    <!-- 已登录用户额度用完弹窗 -->
+    <div class="loading-overlay" v-if="showNoCreditDialog" @click.self="showNoCreditDialog = false">
+      <div class="limit-dialog">
+        <p class="limit-title">{{ $t('解卦额度已用完') }}</p>
+        <p class="limit-desc">{{ $t('邀请好友即可赠送更多额度') }}</p>
+        <button class="btn-primary" @click="goInvite">{{ $t('邀请好友得额度') }}</button>
+        <p class="limit-cancel" @click="showNoCreditDialog = false">{{ $t('取消') }}</p>
       </div>
     </div>
 
@@ -45,12 +55,15 @@ const router = useRouter()
 const inputText = ref('')
 const loading = ref(false)
 const showLimitDialog = ref(false)
+const showNoCreditDialog = ref(false)
 let guestFreeUses = 1
+const registeredFreeUses = ref(50)
 
 onMounted(async () => {
   try {
     const config = await getQuotaConfig()
     guestFreeUses = config.guest_free_uses || 1
+    registeredFreeUses.value = config.registered_free_uses || 50
   } catch (e) {}
 })
 
@@ -68,6 +81,11 @@ function checkGuestLimit() {
 function goRegister() {
   showLimitDialog.value = false
   router.push('/login')
+}
+
+function goInvite() {
+  showNoCreditDialog.value = false
+  router.push('/invite')
 }
 
 async function submit() {
@@ -110,7 +128,7 @@ async function submit() {
     }
   } catch (e) {
     if (e.response?.status === 403 && e.response?.data?.error === 'no_credit') {
-      alert(t('额度已用完'))
+      showNoCreditDialog.value = true
     } else {
       alert(t('请求失败，请检查网络连接后重试'))
     }

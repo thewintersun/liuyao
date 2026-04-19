@@ -17,6 +17,7 @@ const routes = [
   { path: '/forgot-password', name: 'ForgotPassword', component: () => import('../views/ForgotPassword.vue'), meta: { tab: 'qigua' } },
   { path: '/reset-password', name: 'ResetPassword', component: () => import('../views/ResetPassword.vue'), meta: { tab: 'qigua' } },
   { path: '/account', name: 'Account', component: () => import('../views/Account.vue'), meta: { tab: 'settings' } },
+  { path: '/invite', name: 'Invite', component: () => import('../views/Invite.vue'), meta: { tab: 'settings' } },
   // 管理后台路由
   { path: '/admin', name: 'AdminDashboard', component: () => import('../views/admin/Dashboard.vue'), meta: { tab: 'settings', requireAdmin: true } },
   { path: '/admin/users', name: 'AdminUsers', component: () => import('../views/admin/Users.vue'), meta: { tab: 'settings', requireAdmin: true } },
