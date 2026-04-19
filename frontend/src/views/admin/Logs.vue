@@ -70,6 +70,7 @@
 import { ref, reactive, computed, watch, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { getAdminLogs } from '../../api/index.js'
+import { t } from '../../utils/locale.js'
 
 const router = useRouter()
 
