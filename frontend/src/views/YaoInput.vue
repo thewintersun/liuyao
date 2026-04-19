@@ -61,22 +61,32 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, watch } from 'vue'
+import { ref, reactive, computed, watch, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import ShakeDivination from '../components/ShakeDivination.vue'
 
 const router = useRouter()
 
-// 模式切换: 'manual' | 'shake'
-const mode = ref('manual')
+const STORAGE_KEY = 'liuyao_yaoInput_state'
 
-// 默认当前时间
+// 尝试恢复之前的状态
+const saved = (() => {
+  try {
+    const raw = sessionStorage.getItem(STORAGE_KEY)
+    return raw ? JSON.parse(raw) : null
+  } catch { return null }
+})()
+
+// 模式切换: 'manual' | 'shake'
+const mode = ref(saved?.mode || 'manual')
+
+// 时间：优先恢复保存的值，否则用当前时间
 const now = new Date()
-const selYear = ref(now.getFullYear())
-const selMonth = ref(now.getMonth() + 1)
-const selDay = ref(now.getDate())
-const selHour = ref(now.getHours())
-const selMinute = ref(now.getMinutes())
+const selYear = ref(saved?.year ?? now.getFullYear())
+const selMonth = ref(saved?.month ?? (now.getMonth() + 1))
+const selDay = ref(saved?.day ?? now.getDate())
+const selHour = ref(saved?.hour ?? now.getHours())
+const selMinute = ref(saved?.minute ?? now.getMinutes())
 
 // 年份列表: 当前年份前后范围
 const yearList = computed(() => {
@@ -98,7 +108,23 @@ watch([selYear, selMonth], () => {
 })
 
 // 6个爻的值 (index 0=初爻/第一次摇, 5=上爻/第六次摇), 默认全部一背(1)
-const yaoValues = reactive([1, 1, 1, 1, 1, 1])
+const yaoValues = reactive(saved?.yaoValues || [1, 1, 1, 1, 1, 1])
+
+// 保存表单状态到 sessionStorage
+function saveState() {
+  sessionStorage.setItem(STORAGE_KEY, JSON.stringify({
+    mode: mode.value,
+    year: selYear.value,
+    month: selMonth.value,
+    day: selDay.value,
+    hour: selHour.value,
+    minute: selMinute.value,
+    yaoValues: [...yaoValues]
+  }))
+}
+
+watch([mode, selYear, selMonth, selDay, selHour, selMinute], saveState)
+watch(yaoValues, saveState)
 
 const options = [
   { label: '一背', value: 1 },

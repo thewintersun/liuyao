@@ -13,16 +13,6 @@
       />
     </div>
 
-    <div class="form-group" v-if="!isLogin">
-      <input
-        v-model="email"
-        type="email"
-        class="form-input"
-        :placeholder="$t('请输入邮箱，找回密码用')"
-        @keydown.enter="handleSubmit"
-      />
-    </div>
-
     <div class="form-group">
       <input
         v-model="password"
@@ -35,19 +25,6 @@
 
     <div class="forgot-link" v-if="isLogin">
       <span @click="$router.push('/forgot-password')">{{ $t('忘记密码？') }}</span>
-    </div>
-
-    <div class="form-group" v-if="!isLogin">
-      <input
-        v-model="confirmPassword"
-        type="password"
-        class="form-input"
-        :placeholder="$t('请确认密码')"
-        @keydown.enter="handleSubmit"
-      />
-      <p v-if="confirmPassword" class="pwd-hint" :class="passwordMatch ? 'match' : 'mismatch'">
-        {{ $t(passwordMatch ? '密码一致' : '两次密码不一致') }}
-      </p>
     </div>
 
     <div class="form-group" v-if="!isLogin">
@@ -120,7 +97,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { login, register, getCaptcha, getQuotaConfig } from '../api/index.js'
 import { t } from '../utils/locale.js'
@@ -128,9 +105,7 @@ import { t } from '../utils/locale.js'
 const router = useRouter()
 const isLogin = ref(true)
 const username = ref('')
-const email = ref('')
 const password = ref('')
-const confirmPassword = ref('')
 const captchaId = ref('')
 const captchaText = ref('')
 const captchaImage = ref('')
@@ -140,7 +115,7 @@ const agreedTerms = ref(false)
 const showTermsDialog = ref(false)
 const registeredUses = ref(3)
 
-const passwordMatch = computed(() => password.value && password.value === confirmPassword.value)
+
 
 onMounted(async () => {
   // 已登录则跳转到账户页
@@ -172,8 +147,6 @@ async function refreshCaptcha() {
 
 function toggleMode() {
   isLogin.value = !isLogin.value
-  email.value = ''
-  confirmPassword.value = ''
   captchaText.value = ''
   agreedTerms.value = false
   showTermsDialog.value = false
@@ -202,18 +175,6 @@ async function handleSubmit() {
     return
   }
   if (!isLogin.value) {
-    if (!email.value.trim()) {
-      alert(t('请输入邮箱'))
-      return
-    }
-    if (!/^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$/.test(email.value.trim())) {
-      alert(t('邮箱格式不正确'))
-      return
-    }
-    if (password.value !== confirmPassword.value) {
-      alert(t('两次输入的密码不一致'))
-      return
-    }
     if (password.value.length < 6) {
       alert(t('密码长度不能少于6个字符'))
       return
@@ -233,7 +194,7 @@ async function handleSubmit() {
   try {
     const result = isLogin.value
       ? await login(username.value.trim(), password.value)
-      : await register(username.value.trim(), password.value, email.value.trim(), captchaId.value, captchaText.value.trim(), agreedTerms.value, inviteCode.value.trim())
+      : await register(username.value.trim(), password.value, '', captchaId.value, captchaText.value.trim(), agreedTerms.value, inviteCode.value.trim())
     if (result.status === 'success') {
       localStorage.setItem('liuyao_token', result.token)
       localStorage.setItem('liuyao_user', JSON.stringify(result.user))
@@ -276,17 +237,6 @@ async function handleSubmit() {
 }
 .form-input::placeholder {
   color: var(--color-text-secondary);
-}
-.pwd-hint {
-  font-size: 13px;
-  margin-top: 6px;
-  padding-left: 2px;
-}
-.pwd-hint.match {
-  color: var(--color-user-bubble);
-}
-.pwd-hint.mismatch {
-  color: var(--color-danger);
 }
 .switch-text {
   text-align: center;

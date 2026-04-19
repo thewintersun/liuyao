@@ -217,9 +217,7 @@ def register_user(username, password, email=None, agreed_version=None, agreed_at
         return None, '用户名长度需在2-20个字符之间'
     if len(password) < 6:
         return None, '密码长度不能少于6个字符'
-    if not email or not email.strip():
-        return None, '邮箱不能为空'
-    if not EMAIL_RE.match(email.strip()):
+    if email and email.strip() and not EMAIL_RE.match(email.strip()):
         return None, '邮箱格式不正确'
 
     db = get_db()
@@ -238,7 +236,7 @@ def register_user(username, password, email=None, agreed_version=None, agreed_at
 
         db.execute(
             'INSERT INTO users (username, password_hash, free_uses, email, agreed_version, agreed_at, agreed_ip, invite_code, invited_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
-            (username, generate_password_hash(password), free_uses, email.strip(), agreed_version, agreed_at, agreed_ip, new_invite_code, inviter['id'] if inviter else None)
+            (username, generate_password_hash(password), free_uses, email.strip() if email else '', agreed_version, agreed_at, agreed_ip, new_invite_code, inviter['id'] if inviter else None)
         )
         db.commit()
         user = db.execute('SELECT * FROM users WHERE username = ?', (username,)).fetchone()

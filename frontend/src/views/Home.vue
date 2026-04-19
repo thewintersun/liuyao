@@ -20,11 +20,19 @@
         <p class="section-text" v-html="$t('20XX年X月X日X点X分') + '<br/>' + $t('1. 几背 2. 几背 3. 几背 4. 几背 5. 几背 6. 几背')"></p>
       </div>
     </div>
-    <button class="btn-primary home-btn" @click="$router.push('/yao-input')">{{ $t('开始起卦') }}</button>
+    <button class="btn-primary home-btn" @click="startNew">{{ $t('开始起卦') }}</button>
   </div>
 </template>
 
 <script setup>
+import { useRouter } from 'vue-router'
+
+const router = useRouter()
+
+function startNew() {
+  sessionStorage.removeItem('liuyao_yaoInput_state')
+  router.push('/yao-input')
+}
 </script>
 
 <style scoped>
