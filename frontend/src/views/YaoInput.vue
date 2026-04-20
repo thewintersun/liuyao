@@ -54,7 +54,7 @@
       <button class="btn-primary" @click="submit">{{ $t('排盘') }}</button>
     </template>
 
-    <ShakeDivination v-if="mode === 'shake'" @complete="onShakeComplete" />
+    <ShakeDivination v-if="mode === 'shake'" :date-info="currentDateInfo" />
   </div>
 </template>
 
@@ -156,19 +156,16 @@ function submit() {
   router.push('/hexagram')
 }
 
-function onShakeComplete(values) {
+// 当前日期信息（传给 ShakeDivination 用于直接导航）
+const currentDateInfo = computed(() => {
   const maxDay = daysInMonth.value
-  const day = selDay.value > maxDay ? maxDay : selDay.value
-
-  sessionStorage.setItem('liuyao_date', JSON.stringify({
+  return {
     year: selYear.value,
     month: selMonth.value,
-    day: day,
+    day: selDay.value > maxDay ? maxDay : selDay.value,
     hour: selHour.value
-  }))
-  sessionStorage.setItem('liuyao_yaoValues', JSON.stringify(values))
-  router.push('/hexagram')
-}
+  }
+})
 </script>
 
 <style scoped>

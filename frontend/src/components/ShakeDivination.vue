@@ -122,8 +122,13 @@
 
 <script setup>
 import { ref, reactive, onMounted, onUnmounted } from 'vue'
+import { useRouter } from 'vue-router'
 
+const props = defineProps({
+  dateInfo: Object
+})
 const emit = defineEmits(['complete'])
+const router = useRouter()
 
 // 移动设备检测
 const isMobile = ref(false)
@@ -228,9 +233,23 @@ function confirmStep() {
   }
 }
 
-// 发送完成事件
+// 完成：保存数据并跳转排盘页
 function emitComplete() {
-  emit('complete', [...yaoValues])
+  const values = [yaoValues[0], yaoValues[1], yaoValues[2], yaoValues[3], yaoValues[4], yaoValues[5]]
+  emit('complete', values)
+
+  // 直接处理导航，不依赖 emit 回调（微信 X5 等内置浏览器中 emit 可能不触发父组件）
+  try {
+    if (props.dateInfo) {
+      sessionStorage.setItem('liuyao_date', JSON.stringify(props.dateInfo))
+    }
+    sessionStorage.setItem('liuyao_yaoValues', JSON.stringify(values))
+  } catch (e) { /* ignore */ }
+
+  router.push('/hexagram').catch(() => {
+    // router.push 失败时使用 location 兜底
+    window.location.href = '/hexagram'
+  })
 }
 
 // 设备动作事件处理
