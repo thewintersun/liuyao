@@ -62,7 +62,7 @@ def send_reset_email(to_email, reset_url):
 
 如果您没有发起此操作，请忽略本邮件。
 
-—— 六爻AI排盘"""
+—— 六爻解卦"""
     return send_email(subject, message, to_email=to_email)
 
 

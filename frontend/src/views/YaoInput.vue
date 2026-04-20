@@ -54,9 +54,7 @@
       <button class="btn-primary" @click="submit">{{ $t('排盘') }}</button>
     </template>
 
-    <KeepAlive>
-      <ShakeDivination v-if="mode === 'shake'" @complete="onShakeComplete" />
-    </KeepAlive>
+    <ShakeDivination v-if="mode === 'shake'" @complete="onShakeComplete" />
   </div>
 </template>
 

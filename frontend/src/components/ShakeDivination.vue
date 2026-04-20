@@ -216,7 +216,8 @@ function confirmStep() {
   yaoValues[currentStep.value] = currentYaoValue.value
 
   if (currentStep.value >= 5) {
-    // 六次摇卦完成
+    // 六次摇卦完成 — 移除 devicemotion 监听，避免干扰后续按钮点击
+    window.removeEventListener('devicemotion', handleMotion)
     currentStep.value = 6
     phase.value = 'done'
   } else {

@@ -1,6 +1,9 @@
 <template>
   <div class="chat-page">
-    <div class="chat-tip">{{ $t('您可以继续针对结果继续追问') }}</div>
+    <div class="chat-tip">
+      <span>{{ $t('您可以继续针对结果继续追问') }}</span>
+      <button v-if="guaXiangInfo" class="share-btn" @click="showShareModal = true">{{ $t('分享图片') }}</button>
+    </div>
 
     <div class="chat-messages" ref="messagesRef">
       <div
@@ -30,6 +33,24 @@
       <button class="send-btn" @click="send" :disabled="loading || !inputText.trim()">{{ $t('发送') }}</button>
     </div>
 
+    <!-- 分享图片模态框 -->
+    <div class="share-overlay" v-if="showShareModal" @click.self="showShareModal = false">
+      <div class="share-modal">
+        <div class="share-modal-header">
+          <span class="share-modal-title">{{ $t('分享图片') }}</span>
+          <span class="share-modal-close" @click="showShareModal = false">&times;</span>
+        </div>
+        <div class="share-card-wrapper" ref="shareCardWrapperRef">
+          <ShareCard ref="shareCardRef" :guaXiangInfo="guaXiangInfo" :message="firstAssistantMessage" />
+        </div>
+        <div class="share-modal-actions">
+          <button class="btn-primary" @click="generateImage" :disabled="generating">
+            {{ generating ? $t('生成中...') : $t('保存图片') }}
+          </button>
+        </div>
+      </div>
+    </div>
+
     <!-- 次数限制弹窗 -->
     <div class="limit-overlay" v-if="showLimitDialog" @click.self="showLimitDialog = false">
       <div class="limit-dialog">
@@ -43,13 +64,15 @@
 </template>
 
 <script setup>
-import { ref, onMounted, nextTick } from 'vue'
+import { ref, computed, onMounted, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
+import html2canvas from 'html2canvas'
 import { chatMessage, restoreChat, getQuotaConfig } from '../api/index.js'
 import { getRecordById, updateRecord, saveRecord } from '../store/records.js'
 import { t } from '../utils/locale.js'
+import ShareCard from '../components/ShareCard.vue'
 
 const router = useRouter()
 const messages = ref([])
@@ -57,7 +80,17 @@ const inputText = ref('')
 const loading = ref(false)
 const messagesRef = ref(null)
 const showLimitDialog = ref(false)
+const showShareModal = ref(false)
+const generating = ref(false)
+const guaXiangInfo = ref(null)
+const shareCardRef = ref(null)
+const shareCardWrapperRef = ref(null)
 let guestFreeUses = 1
+
+const firstAssistantMessage = computed(() => {
+  const msg = messages.value.find(m => m.role === 'assistant')
+  return msg ? msg.content : ''
+})
 
 let sessionId = ''
 let currentRecordId = ''
@@ -81,6 +114,9 @@ onMounted(async () => {
     }
     currentRecordId = record.id
     messages.value = [...record.messages]
+    if (record.guaXiangInfo) {
+      guaXiangInfo.value = record.guaXiangInfo
+    }
     // 恢复后端会话
     try {
       const res = await restoreChat(record.sessionId || '', record.messages)
@@ -106,7 +142,10 @@ onMounted(async () => {
     const savedRecordId = sessionStorage.getItem('liuyao_currentRecordId')
     const category = JSON.parse(sessionStorage.getItem('liuyao_category') || '{}')
     const background = sessionStorage.getItem('liuyao_background') || ''
-    const guaXiangInfo = JSON.parse(sessionStorage.getItem('liuyao_guaXiangInfo') || '{}')
+    const parsedGuaXiangInfo = JSON.parse(sessionStorage.getItem('liuyao_guaXiangInfo') || '{}')
+    if (parsedGuaXiangInfo && Object.keys(parsedGuaXiangInfo).length > 0) {
+      guaXiangInfo.value = parsedGuaXiangInfo
+    }
 
     try {
       if (savedRecordId) {
@@ -116,7 +155,7 @@ onMounted(async () => {
           messages: messages.value,
           category,
           background,
-          guaXiangInfo
+          guaXiangInfo: parsedGuaXiangInfo
         })
       } else {
         // 自动创建记录，标题优先取"所求之事"，fallback 到起卦时间
@@ -127,7 +166,7 @@ onMounted(async () => {
           : ''
         const guaTitle = (background && background.trim().slice(0, 30))
           || dateTitle
-          || guaXiangInfo.bengua_name
+          || parsedGuaXiangInfo.bengua_name
           || t('未命名卦例')
         const date = dateInfo
           ? new Date(dateInfo.year, dateInfo.month - 1, dateInfo.day, dateInfo.hour)
@@ -141,7 +180,7 @@ onMounted(async () => {
           messages: messages.value,
           category,
           background,
-          guaXiangInfo
+          guaXiangInfo: parsedGuaXiangInfo
         })
       }
     } catch (e) {
@@ -223,6 +262,29 @@ async function send() {
   }
 }
 
+async function generateImage() {
+  if (generating.value) return
+  generating.value = true
+  try {
+    await nextTick()
+    const el = shareCardRef.value?.$el
+    if (!el) return
+    const canvas = await html2canvas(el, {
+      backgroundColor: '#141414',
+      scale: 2,
+      useCORS: true
+    })
+    const link = document.createElement('a')
+    link.download = '六爻解卦.png'
+    link.href = canvas.toDataURL('image/png')
+    link.click()
+  } catch (e) {
+    console.error('生成图片失败:', e)
+  } finally {
+    generating.value = false
+  }
+}
+
 async function scrollToBottom() {
   await nextTick()
   if (messagesRef.value) {
@@ -238,12 +300,26 @@ async function scrollToBottom() {
   height: calc(100vh - 44px - 60px);
 }
 .chat-tip {
-  text-align: center;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
   color: var(--color-text-secondary);
   font-size: 13px;
   padding: 8px;
   background: var(--color-card);
   border-bottom: 1px solid var(--color-border);
+}
+.share-btn {
+  font-size: 12px;
+  padding: 2px 10px;
+  background: transparent;
+  color: var(--color-primary);
+  border: 1px solid var(--color-primary);
+  border-radius: 4px;
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 .chat-messages {
   flex: 1;
@@ -379,5 +455,69 @@ async function scrollToBottom() {
   font-size: 14px;
   margin-top: 12px;
   cursor: pointer;
+}
+.share-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0,0,0,0.85);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 300;
+}
+.share-modal {
+  background: var(--color-card);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  max-width: 440px;
+  width: 95%;
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+}
+.share-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--color-border);
+}
+.share-modal-title {
+  color: var(--color-primary);
+  font-size: 16px;
+  font-weight: bold;
+}
+.share-modal-close {
+  color: var(--color-text-secondary);
+  font-size: 24px;
+  cursor: pointer;
+  line-height: 1;
+}
+.share-card-wrapper {
+  overflow-y: auto;
+  padding: 12px;
+  flex: 1;
+  min-height: 0;
+}
+.share-modal-actions {
+  padding: 12px 16px;
+  border-top: 1px solid var(--color-border);
+  text-align: center;
+}
+.share-modal-actions .btn-primary {
+  width: 100%;
+  height: 40px;
+  background: var(--color-primary);
+  color: #141414;
+  font-size: 15px;
+  border-radius: 4px;
+  border: none;
+  cursor: pointer;
+}
+.share-modal-actions .btn-primary:disabled {
+  opacity: 0.5;
 }
 </style>

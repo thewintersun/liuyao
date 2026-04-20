@@ -252,7 +252,9 @@ export class Liuyao {
       biangua_youhun: [this.getBianGuaYouHunGuiHun()],
       dyao_display: this.getDyaoDisplay(),
       shiyao_weizhi: [String(this.getShiYaoWeizhi())],
-      yingyao_weizhi: [String(this.getYingYaoWeizhi())]
+      yingyao_weizhi: [String(this.getYingYaoWeizhi())],
+      maingua_yao: [...this.gua],
+      biangua_yao: [...this.bbgua]
     }
   }
 }
