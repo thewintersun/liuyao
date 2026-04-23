@@ -1,6 +1,14 @@
 """管理后台业务逻辑"""
 import json
-from auth import get_db, reset_password, get_ip_location
+import logging
+from auth import get_db, release_db, reset_password, get_ip_location
+
+logger = logging.getLogger(__name__)
+
+
+def _escape_like(s):
+    """转义 LIKE 通配符，防止用户输入 % 或 _ 导致意外匹配"""
+    return s.replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_')
 from config import (GUEST_FREE_USES, REGISTERED_FREE_USES,
                      INVITE_VISIT_REWARD, INVITE_REGISTER_REWARD, INVITE_REGISTER_BONUS,
                      INVITE_MONTHLY_LIMIT, INVITE_IP_DAILY_LIMIT)
@@ -19,7 +27,7 @@ def get_dashboard_stats(dialog_manager=None):
     today_divinations = db.execute(
         "SELECT COUNT(*) as cnt FROM usage_log WHERE date(created_at) = date('now')"
     ).fetchone()['cnt']
-    db.close()
+    release_db(db)
 
     active_sessions = 0
     if dialog_manager:
@@ -41,13 +49,14 @@ def get_all_users(page=1, per_page=20, search=None):
     offset = (page - 1) * per_page
 
     if search:
+        pattern = f'%{_escape_like(search)}%'
         total = db.execute(
-            'SELECT COUNT(*) as cnt FROM users WHERE username LIKE ?',
-            (f'%{search}%',)
+            'SELECT COUNT(*) as cnt FROM users WHERE username LIKE ? ESCAPE "\\"',
+            (pattern,)
         ).fetchone()['cnt']
         rows = db.execute(
-            'SELECT id, username, role, free_uses, created_at FROM users WHERE username LIKE ? ORDER BY id DESC LIMIT ? OFFSET ?',
-            (f'%{search}%', per_page, offset)
+            'SELECT id, username, role, free_uses, created_at FROM users WHERE username LIKE ? ESCAPE "\\" ORDER BY id DESC LIMIT ? OFFSET ?',
+            (pattern, per_page, offset)
         ).fetchall()
     else:
         total = db.execute('SELECT COUNT(*) as cnt FROM users').fetchone()['cnt']
@@ -56,7 +65,7 @@ def get_all_users(page=1, per_page=20, search=None):
             (per_page, offset)
         ).fetchall()
 
-    db.close()
+    release_db(db)
     users = [dict(row) for row in rows]
     return {
         'users': users,
@@ -74,7 +83,7 @@ def get_user_detail(user_id):
         (user_id,)
     ).fetchone()
     if not user:
-        db.close()
+        release_db(db)
         return None
 
     total_uses = db.execute(
@@ -87,7 +96,7 @@ def get_user_detail(user_id):
         (user_id,)
     ).fetchall()
 
-    db.close()
+    release_db(db)
 
     result = {
         **dict(user),
@@ -105,7 +114,7 @@ def update_user_quota(user_id, free_uses):
     db = get_db()
     db.execute('UPDATE users SET free_uses = ? WHERE id = ?', (free_uses, user_id))
     db.commit()
-    db.close()
+    release_db(db)
 
 
 def ban_user(user_id):
@@ -113,14 +122,14 @@ def ban_user(user_id):
     # 不允许封禁管理员
     user = db.execute('SELECT role FROM users WHERE id = ?', (user_id,)).fetchone()
     if not user:
-        db.close()
+        release_db(db)
         return False, '用户不存在'
     if user['role'] == 'admin':
-        db.close()
+        release_db(db)
         return False, '不能封禁管理员'
     db.execute("UPDATE users SET role = 'banned' WHERE id = ?", (user_id,))
     db.commit()
-    db.close()
+    release_db(db)
     return True, None
 
 
@@ -128,7 +137,7 @@ def unban_user(user_id):
     db = get_db()
     db.execute("UPDATE users SET role = 'user' WHERE id = ? AND role = 'banned'", (user_id,))
     db.commit()
-    db.close()
+    release_db(db)
     return True, None
 
 
@@ -142,7 +151,7 @@ def admin_reset_password(user_id, new_password):
 def get_system_config(key):
     db = get_db()
     row = db.execute('SELECT value FROM system_config WHERE key = ?', (key,)).fetchone()
-    db.close()
+    release_db(db)
     if row:
         return row['value']
     # fallback 到 config.py 默认值
@@ -165,7 +174,7 @@ def update_system_config(key, value):
         (key, value)
     )
     db.commit()
-    db.close()
+    release_db(db)
 
 
 def get_all_configs():
@@ -186,7 +195,7 @@ def get_all_configs():
 def get_prompt(key):
     db = get_db()
     row = db.execute('SELECT value FROM system_config WHERE key = ?', (key,)).fetchone()
-    db.close()
+    release_db(db)
     if row:
         return row['value']
     # fallback 到 llm/common/config.py 默认值
@@ -204,7 +213,7 @@ def update_prompt(key, value):
         (key, value)
     )
     db.commit()
-    db.close()
+    release_db(db)
 
 
 def get_all_prompts():
@@ -223,7 +232,7 @@ def create_feedback(user_id, feedback, contact):
         (user_id, feedback, contact)
     )
     db.commit()
-    db.close()
+    release_db(db)
 
 
 def get_all_feedback(page=1, per_page=20, status_filter=None):
@@ -246,7 +255,7 @@ def get_all_feedback(page=1, per_page=20, status_filter=None):
             (per_page, offset)
         ).fetchall()
 
-    db.close()
+    release_db(db)
     feedbacks = [dict(row) for row in rows]
     return {
         'feedbacks': feedbacks,
@@ -265,7 +274,7 @@ def update_feedback_status(feedback_id, status):
     )
     db.commit()
     affected = cursor.rowcount
-    db.close()
+    release_db(db)
     return affected > 0
 
 
@@ -280,8 +289,8 @@ def get_usage_logs(page=1, per_page=20, username=None, date_from=None, date_to=N
     params = []
 
     if username:
-        conditions.append('u.username LIKE ?')
-        params.append(f'%{username}%')
+        conditions.append('u.username LIKE ? ESCAPE "\\"')
+        params.append(f'%{_escape_like(username)}%')
     if date_from:
         conditions.append("date(l.created_at) >= ?")
         params.append(date_from)
@@ -323,7 +332,7 @@ def get_usage_logs(page=1, per_page=20, username=None, date_from=None, date_to=N
         params + [per_page, offset]
     ).fetchall()
 
-    db.close()
+    release_db(db)
     logs = [dict(row) for row in rows]
     return {
         'logs': logs,
@@ -351,7 +360,7 @@ def _rebuild_first_user_message(gua_xiang_info_str, category_str, background):
         liuyao_prompt = get_prompt('LIUYAO_PROMPT')
         return liuyao_prompt.format(liuyao_data=organized)
     except Exception as e:
-        print(f'重建首条消息失败: {e}')
+        logger.warning(f'重建首条消息失败: {e}')
         return None
 
 
@@ -368,7 +377,7 @@ def get_session_messages(session_id, dialog_manager=None):
         'SELECT l.*, u.username FROM usage_log l LEFT JOIN users u ON l.user_id = u.id WHERE l.session_id = ? ORDER BY l.id ASC',
         (session_id,)
     ).fetchall()
-    db.close()
+    release_db(db)
 
     logs = [dict(r) for r in log_rows] if log_rows else []
 
@@ -397,7 +406,7 @@ def get_session_messages(session_id, dialog_manager=None):
         'SELECT messages, gua_xiang_info, category, background, user_id, created_at FROM conversations WHERE session_id = ?',
         (session_id,)
     ).fetchone()
-    db2.close()
+    release_db(db2)
 
     if conv_row and conv_row['messages']:
         messages = json.loads(conv_row['messages'])

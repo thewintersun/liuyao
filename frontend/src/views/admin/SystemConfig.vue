@@ -46,6 +46,7 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 import { getAdminConfig, updateAdminConfig } from '../../api/index.js'
+import { showToast } from '../../utils/toast.js'
 
 const configs = ref({
   GUEST_FREE_USES: 1,
@@ -82,7 +83,7 @@ async function handleSave() {
     saved.value = true
     setTimeout(() => { saved.value = false }, 2000)
   } catch (e) {
-    alert('保存失败')
+    showToast('保存失败', 'error')
   } finally {
     saving.value = false
   }

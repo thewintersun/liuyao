@@ -146,6 +146,7 @@ function submit() {
   const maxDay = daysInMonth.value
   const day = selDay.value > maxDay ? maxDay : selDay.value
 
+  sessionStorage.removeItem('liuyao_currentRecordId')
   sessionStorage.setItem('liuyao_date', JSON.stringify({
     year: selYear.value,
     month: selMonth.value,

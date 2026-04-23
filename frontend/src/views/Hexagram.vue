@@ -68,6 +68,7 @@ import { useRouter } from 'vue-router'
 import { Liuyao } from '../core/liuyao.js'
 import { saveRecord } from '../store/records.js'
 import { t } from '../utils/locale.js'
+import { showToast } from '../utils/toast.js'
 
 const router = useRouter()
 const ly = new Liuyao()
@@ -181,7 +182,7 @@ async function saveHexagram() {
     const date = new Date(dateInfo.year, dateInfo.month - 1, dateInfo.day, dateInfo.hour)
     const record = await saveRecord(title.trim(), date, yaoValues)
     sessionStorage.setItem('liuyao_currentRecordId', record.id)
-    alert(t('卦例已保存'))
+    showToast(t('卦例已保存'), 'success')
   }
 }
 

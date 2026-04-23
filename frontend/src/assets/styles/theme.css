@@ -30,6 +30,13 @@ button {
   cursor: pointer;
   border: none;
   outline: none;
+  transition: transform 0.15s ease, opacity 0.15s ease;
+  -webkit-tap-highlight-color: transparent;
+}
+
+button:active:not(:disabled) {
+  transform: scale(0.97);
+  opacity: 0.85;
 }
 
 input, textarea {
@@ -75,6 +82,16 @@ input, textarea {
 ::-webkit-scrollbar-thumb {
   background: var(--color-border);
   border-radius: 2px;
+}
+
+/* 可点击元素的按压缩放反馈 */
+.touchable {
+  transition: transform 0.15s ease, opacity 0.15s ease;
+  -webkit-tap-highlight-color: transparent;
+}
+.touchable:active {
+  transform: scale(0.98);
+  opacity: 0.85;
 }
 
 .page {

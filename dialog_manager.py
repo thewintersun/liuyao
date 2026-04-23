@@ -1,4 +1,5 @@
 import sys
+import logging
 from pathlib import Path
 ROOT_DIR = Path(__file__).parent
 sys.path.insert(0, str(ROOT_DIR))
@@ -10,21 +11,24 @@ import admin_service
 import time
 import uuid
 from collections import OrderedDict
+import config as _cfg
+
+logger = logging.getLogger(__name__)
 
 class DialogManager:
 
-    TOKEN_LIMIT = 50000
+    TOKEN_LIMIT = _cfg.CONVERSATION_TOKEN_LIMIT
 
     def __init__(self):
         self.llm_client = DeepseekClient()
         self._conversation_dict = OrderedDict()
-        self._max_conversations = 100
-        self._conversation_timeout = 3600 * 24
+        self._max_conversations = _cfg.MAX_CONCURRENT_CONVERSATIONS
+        self._conversation_timeout = _cfg.CONVERSATION_TIMEOUT_SECONDS
 
     def get_current_active_user_number(self):
         current_user_number = 0
         for conversation, current_time in self._conversation_dict.values():
-            if time.time() - current_time > 10 * 60:
+            if time.time() - current_time > _cfg.ACTIVE_USER_WINDOW_SECONDS:
                 continue
             current_user_number += 1
         return current_user_number
@@ -79,7 +83,7 @@ class DialogManager:
     def _msg_tokens(cls, msg):
         return cls._estimate_tokens(msg.content) + 4  # 每条消息额外开销
 
-    MAX_RECENT_ROUNDS = 9  # 首轮之外最多保留 9 轮（18 条）
+    MAX_RECENT_ROUNDS = _cfg.MAX_RECENT_ROUNDS
 
     def _trim_conversation_history(self, conversation: Conversation) -> Conversation:
         messages = conversation.messages
@@ -149,14 +153,14 @@ class DialogManager:
         conversation = self._trim_conversation_history(conversation)
 
         total_tokens = sum(self._msg_tokens(m) for m in conversation.messages)
-        print(f'历史对话数量: {len(conversation.messages)}, 估算tokens: {total_tokens}')
+        logger.info(f'历史对话数量: {len(conversation.messages)}, 估算tokens: {total_tokens}')
 
         try:
             response = self.llm_client.chat_sync(
                 conversation=conversation,
                 user_message=message,
-                temperature=0.7,
-                max_tokens=4096,
+                temperature=_cfg.LLM_TEMPERATURE,
+                max_tokens=_cfg.LLM_MAX_TOKENS,
                 stream=False
             )
             self.set_conversation(conversation_id, conversation)
@@ -170,7 +174,7 @@ class DialogManager:
             is_context_error = any(kw in error_msg for kw in
                                    ['context_length', 'too long', 'maximum', 'token', 'content_length'])
             if is_context_error:
-                print(f'上下文过长，激进裁剪后重试: {e}')
+                logger.warning(f'上下文过长，激进裁剪后重试: {e}')
                 self._aggressive_trim(conversation)
                 try:
                     response = self.llm_client.chat_sync(
@@ -183,12 +187,12 @@ class DialogManager:
                     self.set_conversation(conversation_id, conversation)
                     return response, True
                 except Exception as retry_e:
-                    print(f'重试仍然失败: {retry_e}')
+                    logger.error(f'重试仍然失败: {retry_e}')
                     if conversation.messages and conversation.messages[-1].role == 'user':
                         conversation.messages.pop()
                     self.set_conversation(conversation_id, conversation)
                     return '抱歉，对话上下文过长导致处理失败，请尝试开始新的对话。', False
             else:
-                print(f'LLM 调用失败: {e}')
+                logger.error(f'LLM 调用失败: {e}')
                 self.set_conversation(conversation_id, conversation)
                 return '抱歉，AI 服务暂时不可用，请稍后重试。', False

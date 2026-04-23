@@ -47,6 +47,7 @@ import { ref, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { verifyResetToken, resetPassword } from '../api/index.js'
 import { t } from '../utils/locale.js'
+import { showToast } from '../utils/toast.js'
 
 const route = useRoute()
 const router = useRouter()
@@ -77,15 +78,15 @@ onMounted(async () => {
 
 async function handleSubmit() {
   if (!password.value) {
-    alert(t('请输入新密码'))
+    showToast(t('请输入新密码'), 'warning')
     return
   }
   if (password.value.length < 6) {
-    alert(t('密码长度不能少于6个字符'))
+    showToast(t('密码长度不能少于6个字符'), 'warning')
     return
   }
   if (password.value !== confirmPassword.value) {
-    alert(t('两次输入的密码不一致'))
+    showToast(t('两次输入的密码不一致'), 'warning')
     return
   }
   loading.value = true
@@ -94,7 +95,7 @@ async function handleSubmit() {
     done.value = true
   } catch (e) {
     const msg = e.response?.data?.error || t('重置失败，请稍后重试')
-    alert(msg)
+    showToast(msg, 'error')
   } finally {
     loading.value = false
   }

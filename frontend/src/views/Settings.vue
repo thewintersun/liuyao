@@ -2,37 +2,37 @@
   <div class="page settings-page">
     <h2 class="page-title">{{ $t('设置') }}</h2>
     <div class="menu-list">
-      <div class="menu-item" @click="goAccount">
+      <div class="menu-item touchable" @click="goAccount">
         <span class="menu-title">{{ $t(isLoggedIn ? '账户' : '登录 / 注册') }}</span>
         <span class="menu-extra" v-if="isLoggedIn">{{ username }}</span>
         <span class="menu-arrow">&#8250;</span>
       </div>
-      <div class="menu-item" @click="$router.push('/guide')">
+      <div class="menu-item touchable" @click="$router.push('/guide')">
         <span class="menu-title">{{ $t('起卦必读') }}</span>
         <span class="menu-arrow">&#8250;</span>
       </div>
-      <div class="menu-item" @click="$router.push('/disclaimer')">
+      <div class="menu-item touchable" @click="$router.push('/disclaimer')">
         <span class="menu-title">{{ $t('免责声明') }}</span>
         <span class="menu-arrow">&#8250;</span>
       </div>
-      <div class="menu-item" @click="$router.push('/terms-privacy')">
+      <div class="menu-item touchable" @click="$router.push('/terms-privacy')">
         <span class="menu-title">{{ $t('用户协议与隐私政策') }}</span>
         <span class="menu-arrow">&#8250;</span>
       </div>
-      <div class="menu-item" @click="$router.push('/feedback')">
+      <div class="menu-item touchable" @click="$router.push('/feedback')">
         <span class="menu-title">{{ $t('建议反馈') }}</span>
         <span class="menu-arrow">&#8250;</span>
       </div>
-      <div class="menu-item" v-if="isLoggedIn" @click="$router.push('/invite')">
+      <div class="menu-item touchable" v-if="isLoggedIn" @click="$router.push('/invite')">
         <span class="menu-title">{{ $t('邀请好友得额度') }}</span>
         <span class="menu-arrow">&#8250;</span>
       </div>
-      <div class="menu-item" @click="showLangPicker = true">
+      <div class="menu-item touchable" @click="showLangPicker = true">
         <span class="menu-title">{{ $t('语言') }} / Language</span>
         <span class="menu-extra">{{ currentLangLabel }}</span>
         <span class="menu-arrow">&#8250;</span>
       </div>
-      <div class="menu-item" v-if="isAdmin" @click="$router.push('/admin')">
+      <div class="menu-item touchable" v-if="isAdmin" @click="$router.push('/admin')">
         <span class="menu-title">{{ $t('后台管理') }}</span>
         <span class="menu-arrow">&#8250;</span>
       </div>

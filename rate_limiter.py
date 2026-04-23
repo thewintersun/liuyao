@@ -4,6 +4,7 @@ IP 限流器 — 基于滑动时间窗口的内存限流，无需外部依赖。
 import os
 import time
 import threading
+from config import RATE_LIMITER_CLEANUP_INTERVAL, RATE_LIMITER_RETENTION_WINDOW
 
 
 class RateLimiter:
@@ -11,7 +12,7 @@ class RateLimiter:
         self._records = {}  # key -> [timestamp, ...]
         self._lock = threading.Lock()
         self._last_cleanup = time.time()
-        self._cleanup_interval = 300  # 每 5 分钟清理一次过期条目
+        self._cleanup_interval = RATE_LIMITER_CLEANUP_INTERVAL
 
     def is_allowed(self, key, max_requests, window_seconds):
         """检查 key 在 window_seconds 内是否还未超过 max_requests 次。
@@ -43,7 +44,7 @@ class RateLimiter:
         expired_keys = []
         for key, timestamps in self._records.items():
             # 保留最近 1 小时内有记录的 key（覆盖最长窗口）
-            fresh = [t for t in timestamps if t > now - 3600]
+            fresh = [t for t in timestamps if t > now - RATE_LIMITER_RETENTION_WINDOW]
             if fresh:
                 self._records[key] = fresh
             else:

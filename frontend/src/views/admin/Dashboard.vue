@@ -8,23 +8,23 @@
     </div>
 
     <div class="menu-list">
-      <div class="menu-item" @click="$router.push('/admin/users')">
+      <div class="menu-item touchable" @click="$router.push('/admin/users')">
         <span class="menu-title">{{ $t('用户管理') }}</span>
         <span class="menu-arrow">&#8250;</span>
       </div>
-      <div class="menu-item" @click="$router.push('/admin/config')">
+      <div class="menu-item touchable" @click="$router.push('/admin/config')">
         <span class="menu-title">{{ $t('系统设置') }}</span>
         <span class="menu-arrow">&#8250;</span>
       </div>
-      <div class="menu-item" @click="$router.push('/admin/prompts')">
+      <div class="menu-item touchable" @click="$router.push('/admin/prompts')">
         <span class="menu-title">{{ $t('提示词管理') }}</span>
         <span class="menu-arrow">&#8250;</span>
       </div>
-      <div class="menu-item" @click="$router.push('/admin/feedback')">
+      <div class="menu-item touchable" @click="$router.push('/admin/feedback')">
         <span class="menu-title">{{ $t('反馈管理') }}</span>
         <span class="menu-arrow">&#8250;</span>
       </div>
-      <div class="menu-item" @click="$router.push('/admin/logs')">
+      <div class="menu-item touchable" @click="$router.push('/admin/logs')">
         <span class="menu-title">{{ $t('使用日志') }}</span>
         <span class="menu-arrow">&#8250;</span>
       </div>

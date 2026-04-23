@@ -12,7 +12,7 @@
 
     <div class="feedback-list">
       <div
-        class="feedback-item"
+        class="feedback-item touchable"
         v-for="item in feedbacks"
         :key="item.id"
         @click="toggleExpand(item.id)"
@@ -53,6 +53,7 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 import { getAdminFeedback, updateFeedbackStatus } from '../../api/index.js'
+import { showToast } from '../../utils/toast.js'
 
 const feedbacks = ref([])
 const page = ref(1)
@@ -110,7 +111,7 @@ async function markStatus(item, status) {
     await updateFeedbackStatus(item.id, status)
     item.status = status
   } catch (e) {
-    alert('操作失败')
+    showToast('操作失败', 'error')
   }
 }
 

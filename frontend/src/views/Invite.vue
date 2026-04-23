@@ -64,6 +64,7 @@
 import { ref, onMounted } from 'vue'
 import { getInviteStats, getQuotaConfig } from '../api/index.js'
 import { t } from '../utils/locale.js'
+import { showToast } from '../utils/toast.js'
 
 const inviteCode = ref('')
 const inviteLink = ref('')
@@ -104,7 +105,7 @@ function copyLink() {
 function copyText(text) {
   if (navigator.clipboard) {
     navigator.clipboard.writeText(text).then(() => {
-      alert(t('已复制到剪贴板'))
+      showToast(t('已复制到剪贴板'), 'success')
     }).catch(() => fallbackCopy(text))
   } else {
     fallbackCopy(text)
@@ -120,7 +121,7 @@ function fallbackCopy(text) {
   ta.select()
   document.execCommand('copy')
   document.body.removeChild(ta)
-  alert(t('已复制到剪贴板'))
+  showToast(t('已复制到剪贴板'), 'success')
 }
 
 function maskIp(ip) {

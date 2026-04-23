@@ -18,6 +18,7 @@ import { ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { submitFeedback } from '../api/index.js'
 import { t } from '../utils/locale.js'
+import { showToast } from '../utils/toast.js'
 
 const router = useRouter()
 const feedbackText = ref('')
@@ -25,7 +26,7 @@ const loading = ref(false)
 
 async function submit() {
   if (!feedbackText.value.trim()) {
-    alert(t('请输入反馈内容'))
+    showToast(t('请输入反馈内容'), 'warning')
     return
   }
 
@@ -33,13 +34,13 @@ async function submit() {
   try {
     const result = await submitFeedback(feedbackText.value.trim())
     if (result.status === 'success') {
-      alert(t('反馈已提交，感谢您的建议！'))
+      showToast(t('反馈已提交，感谢您的建议！'), 'success')
       router.back()
     } else {
-      alert(t('提交失败，请稍后再试'))
+      showToast(t('提交失败，请稍后再试'), 'error')
     }
   } catch (e) {
-    alert(t('提交失败，请稍后再试'))
+    showToast(t('提交失败，请稍后再试'), 'error')
   } finally {
     loading.value = false
   }

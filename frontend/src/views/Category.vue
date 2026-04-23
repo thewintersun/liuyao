@@ -9,7 +9,7 @@
       <div
         v-for="(cat, index) in categories"
         :key="index"
-        class="category-item"
+        class="category-item touchable"
         :class="{ selected: selectedIndex === index }"
         @click="selectedIndex = index"
       >

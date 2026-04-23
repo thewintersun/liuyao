@@ -61,6 +61,7 @@ import { ref, nextTick, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { getUserInfo, changePassword, changeEmail } from '../api/index.js'
 import { t } from '../utils/locale.js'
+import { showToast } from '../utils/toast.js'
 
 const router = useRouter()
 const user = ref(null)
@@ -113,36 +114,36 @@ function clearLongPress() {
 }
 
 async function handleChangeEmail() {
-  if (!newEmail.value || !newEmail.value.trim()) { alert(t('邮箱��能为空')); return }
-  if (!/^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$/.test(newEmail.value.trim())) { alert(t('邮箱格式不正确')); return }
+  if (!newEmail.value || !newEmail.value.trim()) { showToast(t('邮箱不能为空'), 'warning'); return }
+  if (!/^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$/.test(newEmail.value.trim())) { showToast(t('邮箱格式不正确'), 'warning'); return }
   emailLoading.value = true
   try {
     const result = await changeEmail(newEmail.value.trim())
     user.value = result.user
     localStorage.setItem('liuyao_user', JSON.stringify(result.user))
     editingEmail.value = false
-    alert(t('邮箱修改成功'))
+    showToast(t('邮箱修改成功'), 'success')
   } catch (e) {
-    alert(e.response?.data?.error || t('修改失败'))
+    showToast(e.response?.data?.error || t('修改失败'), 'error')
   } finally {
     emailLoading.value = false
   }
 }
 
 async function handleChangePwd() {
-  if (!oldPwd.value) { alert(t('请输入原密码')); return }
-  if (!newPwd.value || newPwd.value.length < 6) { alert(t('新密码长度不能少于6个字符')); return }
-  if (newPwd.value !== confirmPwd.value) { alert(t('两次输入的密码不一致')); return }
+  if (!oldPwd.value) { showToast(t('请输入原密码'), 'warning'); return }
+  if (!newPwd.value || newPwd.value.length < 6) { showToast(t('新密码长度不能少于6个字符'), 'warning'); return }
+  if (newPwd.value !== confirmPwd.value) { showToast(t('两次输入的密码不一致'), 'warning'); return }
   pwdLoading.value = true
   try {
     await changePassword(oldPwd.value, newPwd.value)
-    alert(t('密码修改成功'))
+    showToast(t('密码修改成功'), 'success')
     oldPwd.value = ''
     newPwd.value = ''
     confirmPwd.value = ''
     showChangePwd.value = false
   } catch (e) {
-    alert(e.response?.data?.error || t('修改失败'))
+    showToast(e.response?.data?.error || t('修改失败'), 'error')
   } finally {
     pwdLoading.value = false
   }

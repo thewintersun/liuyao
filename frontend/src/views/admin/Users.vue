@@ -12,7 +12,7 @@
 
     <div class="user-list">
       <div
-        class="user-item"
+        class="user-item touchable"
         v-for="user in users"
         :key="user.id"
         @click="$router.push(`/admin/users/${user.id}`)"

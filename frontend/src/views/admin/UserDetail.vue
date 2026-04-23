@@ -74,6 +74,7 @@
 import { ref, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { getAdminUserDetail, updateUserQuota, banUser, unbanUser, adminResetPassword } from '../../api/index.js'
+import { showToast } from '../../utils/toast.js'
 
 const route = useRoute()
 const user = ref(null)
@@ -104,21 +105,21 @@ async function handleQuota() {
     await updateUserQuota(user.value.id, newQuota.value)
     user.value.free_uses = newQuota.value
   } catch (e) {
-    alert('调整额度失败')
+    showToast('调整额度失败', 'error')
   }
 }
 
 async function handleResetPassword() {
   if (!newPassword.value || newPassword.value.length < 6) {
-    alert('密码长度不能少于6个字符')
+    showToast('密码长度不能少于6个字符', 'warning')
     return
   }
   try {
     await adminResetPassword(user.value.id, newPassword.value)
-    alert('密码已重置')
+    showToast('密码已重置', 'success')
     newPassword.value = ''
   } catch (e) {
-    alert(e.response?.data?.error || '重置失败')
+    showToast(e.response?.data?.error || '重置失败', 'error')
   }
 }
 
@@ -132,7 +133,7 @@ async function handleBanToggle() {
       user.value.role = 'banned'
     }
   } catch (e) {
-    alert(e.response?.data?.error || '操作失败')
+    showToast(e.response?.data?.error || '操作失败', 'error')
   }
 }
 

@@ -3,7 +3,7 @@
     <div
       v-for="tab in tabs"
       :key="tab.path"
-      class="tabbar-item"
+      class="tabbar-item touchable"
       :class="{ active: currentTab === tab.key }"
       @click="$router.push(tab.path)"
     >

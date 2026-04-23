@@ -1,13 +1,14 @@
 import sys
 import os
 import time
+import logging
 import threading
 from pathlib import Path
 from dotenv import load_dotenv
 load_dotenv()  # 最早加载 .env，确保后续 import 能读到环境变量
 from utils import send_email, send_reset_email
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 import uuid
 from liuyao_utils import orgnize_data
 from dialog_manager import DialogManager
@@ -23,9 +24,19 @@ from auth import (init_db, register_user, login_user, get_user_info, check_credi
                   get_user_records, get_user_record_by_id, create_user_record, update_user_record, delete_user_record,
                   change_password, change_email, create_reset_token, validate_reset_token, reset_password_with_token,
                   save_conversation, process_invite_visit, get_invite_stats)
-from config import GUEST_FREE_USES, REGISTERED_FREE_USES
+from config import (GUEST_FREE_USES, REGISTERED_FREE_USES, SITE_URL,
+                     INVITE_VISIT_REWARD, INVITE_REGISTER_REWARD, INVITE_REGISTER_BONUS,
+                     RATE_LIMIT_CAPTCHA, RATE_LIMIT_LOGIN, RATE_LIMIT_GUEST_RECEIVE,
+                     RATE_LIMIT_GUEST_CHAT, RATE_LIMIT_CHAT_RESTORE, RATE_LIMIT_FEEDBACK,
+                     RATE_LIMIT_REGISTER,
+                     RATE_LIMIT_INVITE_VISIT, RATE_LIMIT_FORGOT_PASSWORD,
+                     ASYNC_TASK_TIMEOUT_SECONDS, CHAT_RESTORE_MAX_MESSAGES,
+                     ADMIN_DEFAULT_PER_PAGE, ADMIN_MAX_PER_PAGE,
+                     LLM_LOG_MAX_SIZE, LLM_LOG_RETENTION_DAYS)
 from rate_limiter import limiter, get_client_ip
 import admin_service
+
+logger = logging.getLogger(__name__)
 
 app = Flask(__name__, static_folder=None)
 app.secret_key = os.environ.get('FLASK_SECRET_KEY', os.urandom(32).hex())
@@ -48,12 +59,34 @@ def _cleanup_old_tasks():
     """清理超过 10 分钟的旧任务，防止内存泄漏"""
     now = time.time()
     with _async_tasks_lock:
-        expired = [tid for tid, t in _async_tasks.items() if now - t.get('created_at', 0) > 600]
+        expired = [tid for tid, t in _async_tasks.items() if now - t.get('created_at', 0) > ASYNC_TASK_TIMEOUT_SECONDS]
         for tid in expired:
             del _async_tasks[tid]
 
 
-LLM_LOG_DIR = os.path.dirname(__file__)
+LLM_LOG_DIR = os.path.join(os.path.dirname(__file__), 'logs')
+os.makedirs(LLM_LOG_DIR, exist_ok=True)
+
+
+def _cleanup_old_logs():
+    """删除超过保留天数的旧日志文件"""
+    try:
+        import re
+        now = datetime.now(timezone.utc)
+        for fname in os.listdir(LLM_LOG_DIR):
+            m = re.match(r'llm_log_(\d{4}-\d{2}-\d{2})(?:\.\d+)?\.txt$', fname)
+            if not m:
+                continue
+            file_date = datetime.strptime(m.group(1), '%Y-%m-%d').replace(tzinfo=timezone.utc)
+            age_days = (now - file_date).days
+            if age_days > LLM_LOG_RETENTION_DAYS:
+                os.remove(os.path.join(LLM_LOG_DIR, fname))
+                logger.info(f"清理过期日志: {fname}")
+    except Exception as e:
+        logger.warning(f"清理旧日志失败: {e}")
+
+# 启动时清理一次
+_cleanup_old_logs()
 
 
 def _extract_messages_json(session_id):
@@ -70,19 +103,34 @@ def _extract_messages_json(session_id):
 
 
 def log_llm(session_id, direction, text):
-    """追加记录 LLM 交互日志，按日期分文件"""
+    """追加记录 LLM 交互日志，按日期分文件，超过大小自动轮转"""
     try:
-        now = datetime.now()
+        now = datetime.now(timezone.utc)
         timestamp = now.strftime("%Y-%m-%d %H:%M:%S")
-        log_path = os.path.join(LLM_LOG_DIR, f"llm_log_{now.strftime('%Y-%m-%d')}.txt")
+        date_str = now.strftime('%Y-%m-%d')
+        log_path = os.path.join(LLM_LOG_DIR, f"llm_log_{date_str}.txt")
+
+        # 检查文件大小，超限则轮转
+        if os.path.exists(log_path) and os.path.getsize(log_path) >= LLM_LOG_MAX_SIZE:
+            # 找到下一个可用的轮转编号
+            idx = 1
+            while os.path.exists(os.path.join(LLM_LOG_DIR, f"llm_log_{date_str}.{idx}.txt")):
+                idx += 1
+            os.rename(log_path, os.path.join(LLM_LOG_DIR, f"llm_log_{date_str}.{idx}.txt"))
+
         with open(log_path, 'a', encoding='utf-8') as f:
             f.write(f"\n{'='*60}\n")
             f.write(f"[{timestamp}] session={session_id} {direction}\n")
             f.write(f"{'='*60}\n")
             f.write(text)
             f.write('\n')
+
+        # 每天首次写入时清理旧日志（利用日期变化触发）
+        if not hasattr(log_llm, '_last_cleanup_date') or log_llm._last_cleanup_date != date_str:
+            log_llm._last_cleanup_date = date_str
+            _cleanup_old_logs()
     except Exception as e:
-        print(f"写入LLM日志失败: {e}")
+        logger.warning(f"写入LLM日志失败: {e}")
 
 
 def cut_message(message):
@@ -103,7 +151,7 @@ def cut_message(message):
 @app.route('/api/captcha', methods=['GET'])
 def api_captcha():
     ip = get_client_ip(request)
-    if not limiter.is_allowed(f"captcha:{ip}", 30, 600):
+    if not limiter.is_allowed(f"captcha:{ip}", *RATE_LIMIT_CAPTCHA):
         return jsonify({"error": "请求过于频繁，请稍后再试"}), 429
     captcha_id, image = generate_captcha()
     return jsonify({"captcha_id": captcha_id, "image": image})
@@ -111,6 +159,9 @@ def api_captcha():
 
 @app.route('/api/auth/register', methods=['POST'])
 def api_register():
+    ip = get_client_ip(request)
+    if not limiter.is_allowed(f"register:{ip}", *RATE_LIMIT_REGISTER):
+        return jsonify({"error": "注册请求过于频繁，请稍后再试"}), 429
     if not request.is_json:
         return jsonify({"error": "请求必须是 JSON 格式"}), 400
     data = request.get_json()
@@ -120,7 +171,7 @@ def api_register():
         return jsonify({"error": "验证码错误或已过期"}), 400
     terms_version = admin_service.get_system_config('terms_privacy_version') or '1.0'
     agreed_ip = get_client_ip(request)
-    agreed_at = datetime.utcnow()
+    agreed_at = datetime.now(timezone.utc)
     result, error = register_user(
         data.get('username', ''),
         data.get('password', ''),
@@ -138,7 +189,7 @@ def api_register():
 @app.route('/api/auth/login', methods=['POST'])
 def api_login():
     ip = get_client_ip(request)
-    if not limiter.is_allowed(f"login:{ip}", 10, 600):
+    if not limiter.is_allowed(f"login:{ip}", *RATE_LIMIT_LOGIN):
         return jsonify({"error": "请求过于频繁，请稍后再试"}), 429
     if not request.is_json:
         return jsonify({"error": "请求必须是 JSON 格式"}), 400
@@ -193,9 +244,9 @@ def api_quota():
     return jsonify({
         "guest_free_uses": int(guest_uses) if guest_uses else GUEST_FREE_USES,
         "registered_free_uses": int(registered_uses) if registered_uses else REGISTERED_FREE_USES,
-        "invite_visit_reward": int(invite_visit) if invite_visit else 5,
-        "invite_register_reward": int(invite_register) if invite_register else 20,
-        "invite_register_bonus": int(invite_bonus) if invite_bonus else 20,
+        "invite_visit_reward": int(invite_visit) if invite_visit else INVITE_VISIT_REWARD,
+        "invite_register_reward": int(invite_register) if invite_register else INVITE_REGISTER_REWARD,
+        "invite_register_bonus": int(invite_bonus) if invite_bonus else INVITE_REGISTER_BONUS,
     })
 
 
@@ -250,7 +301,7 @@ def receive_data():
     # 游客 IP 限流：5次/小时（登录用户已有额度控制，不限流）
     if not g.user_id:
         ip = get_client_ip(request)
-        if not limiter.is_allowed(f"receive:{ip}", 5, 3600):
+        if not limiter.is_allowed(f"receive:{ip}", *RATE_LIMIT_GUEST_RECEIVE):
             return jsonify({"error": "请求过于频繁，请稍后再试"}), 429
 
     # 已登录用户：先检查额度（不扣减）
@@ -258,7 +309,7 @@ def receive_data():
         return jsonify({"error": "no_credit", "message": "额度已用完"}), 403
 
     session_id = str(uuid.uuid4())[:16]
-    print(f"当前会话ID: {session_id}")
+    logger.info(f"当前会话ID: {session_id}")
 
     lang = request.headers.get('X-Lang', 'zh-CN')
     data = request.get_json()
@@ -269,7 +320,7 @@ def receive_data():
     response, llm_success = dialog_manager.process_user_message(session_id, message, lang=lang)
     log_llm(session_id, '接收', response)
     cut_response = cut_message(response)
-    print(cut_response)
+    logger.debug(f"LLM响应: {cut_response[:200]}")
 
     # LLM 成功后才扣减额度 / 记录日志 / 保存对话
     remaining_uses = None
@@ -313,7 +364,7 @@ def receive_data_async():
 
     if not g.user_id:
         ip = get_client_ip(request)
-        if not limiter.is_allowed(f"receive:{ip}", 5, 3600):
+        if not limiter.is_allowed(f"receive:{ip}", *RATE_LIMIT_GUEST_RECEIVE):
             return jsonify({"error": "请求过于频繁，请稍后再试"}), 429
 
     if g.user_id and not check_credit(g.user_id):
@@ -372,7 +423,7 @@ def receive_data_async():
             with _async_tasks_lock:
                 _async_tasks[task_id] = {'status': 'done', 'result': result, 'created_at': time.time()}
         except Exception as e:
-            print(f"异步任务处理失败: {e}")
+            logger.error(f"异步任务处理失败: {e}", exc_info=True)
             with _async_tasks_lock:
                 _async_tasks[task_id] = {'status': 'error', 'error': str(e), 'created_at': time.time()}
 
@@ -389,7 +440,7 @@ def chat_async():
 
     if not g.user_id:
         ip = get_client_ip(request)
-        if not limiter.is_allowed(f"chat:{ip}", 10, 3600):
+        if not limiter.is_allowed(f"chat:{ip}", *RATE_LIMIT_GUEST_CHAT):
             return jsonify({"error": "请求过于频繁，请稍后再试"}), 429
 
     user_id = g.user_id
@@ -434,7 +485,7 @@ def chat_async():
             with _async_tasks_lock:
                 _async_tasks[task_id] = {'status': 'done', 'result': result, 'created_at': time.time()}
         except Exception as e:
-            print(f"异步聊天任务处理失败: {e}")
+            logger.error(f"异步聊天任务处理失败: {e}", exc_info=True)
             with _async_tasks_lock:
                 _async_tasks[task_id] = {'status': 'error', 'error': str(e), 'created_at': time.time()}
 
@@ -468,7 +519,7 @@ def chat():
     # 游客 IP 限流：10次/小时
     if not g.user_id:
         ip = get_client_ip(request)
-        if not limiter.is_allowed(f"chat:{ip}", 10, 3600):
+        if not limiter.is_allowed(f"chat:{ip}", *RATE_LIMIT_GUEST_CHAT):
             return jsonify({"error": "请求过于频繁，请稍后再试"}), 429
 
     data = request.get_json()
@@ -480,13 +531,13 @@ def chat():
     if g.user_id and not check_credit(g.user_id):
         return jsonify({"error": "no_credit", "message": "额度已用完"}), 403
 
-    print(f"当前会话ID: {session_id}")
+    logger.info(f"当前会话ID: {session_id}")
 
     log_llm(session_id, '发送', message)
     response, llm_success = dialog_manager.process_user_message(session_id, message, lang=lang)
     log_llm(session_id, '接收', response)
     cut_response = cut_message(response)
-    print(cut_response)
+    logger.debug(f"LLM响应: {cut_response[:200]}")
 
     # LLM 成功后才扣减额度 / 记录日志 / 更新对话
     remaining_uses = None
@@ -520,7 +571,7 @@ def chat():
 @optional_auth
 def chat_restore():
     ip = get_client_ip(request)
-    if not limiter.is_allowed(f"restore:{ip}", 20, 3600):
+    if not limiter.is_allowed(f"restore:{ip}", *RATE_LIMIT_CHAT_RESTORE):
         return jsonify({"error": "请求过于频繁，请稍后再试"}), 429
     if not request.is_json:
         return jsonify({"error": "请求必须是 JSON 格式"}), 400
@@ -533,8 +584,8 @@ def chat_restore():
     # 输入校验：messages 必须是列表，最多 100 条
     if not isinstance(messages, list):
         return jsonify({"error": "messages 格式不正确"}), 400
-    if len(messages) > 100:
-        return jsonify({"error": "消息记录过多，最多支持100条"}), 400
+    if len(messages) > CHAT_RESTORE_MAX_MESSAGES:
+        return jsonify({"error": f"消息记录过多，最多支持{CHAT_RESTORE_MAX_MESSAGES}条"}), 400
     for msg in messages:
         if not isinstance(msg, dict) or 'role' not in msg or 'content' not in msg:
             return jsonify({"error": "消息格式不正确"}), 400
@@ -550,7 +601,7 @@ def chat_restore():
 @optional_auth
 def feedback():
     ip = get_client_ip(request)
-    if not limiter.is_allowed(f"feedback:{ip}", 5, 3600):
+    if not limiter.is_allowed(f"feedback:{ip}", *RATE_LIMIT_FEEDBACK):
         return jsonify({"error": "请求过于频繁，请稍后再试"}), 429
     if not request.is_json:
         return jsonify({"error": "请求必须是 JSON 格式"}), 400
@@ -560,7 +611,7 @@ def feedback():
     try:
         feedback_content = data.get('feedback', '')
         contact_info = data.get('contact', '未提供')
-        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
 
         # 保存到数据库
         admin_service.create_feedback(g.user_id, feedback_content, contact_info)
@@ -576,7 +627,7 @@ def feedback():
         """
         send_email(email_subject, email_body)
     except Exception as e:
-        print(f"处理反馈时出错: {str(e)}")
+        logger.error(f"处理反馈时出错: {e}")
 
     return jsonify({
         "status": "success",
@@ -590,7 +641,7 @@ def feedback():
 def api_invite_visit():
     """游客访问邀请链接时调用"""
     ip = get_client_ip(request)
-    if not limiter.is_allowed(f"invite_visit:{ip}", 10, 3600):
+    if not limiter.is_allowed(f"invite_visit:{ip}", *RATE_LIMIT_INVITE_VISIT):
         return jsonify({"error": "请求过于频繁，请稍后再试"}), 429
     if not request.is_json:
         return jsonify({"error": "请求必须是 JSON 格式"}), 400
@@ -619,7 +670,7 @@ def api_invite_stats():
 @app.route('/api/auth/forgot-password', methods=['POST'])
 def api_forgot_password():
     ip = get_client_ip(request)
-    if not limiter.is_allowed(f"forgot:{ip}", 3, 3600):
+    if not limiter.is_allowed(f"forgot:{ip}", *RATE_LIMIT_FORGOT_PASSWORD):
         return jsonify({"error": "请求过于频繁，请稍后再试"}), 429
     if not request.is_json:
         return jsonify({"error": "请求必须是 JSON 格式"}), 400
@@ -630,8 +681,10 @@ def api_forgot_password():
     # 无论邮箱是否存在都返回成功（防枚举）
     token, user = create_reset_token(email)
     if token and user:
-        reset_url = f"{request.host_url}reset-password?token={token}"
-        send_reset_email(email, reset_url)
+        base = SITE_URL.rstrip('/')
+        reset_url = f"{base}/reset-password?token={token}"
+        if not send_reset_email(email, reset_url):
+            return jsonify({"error": "邮件发送失败，请稍后重试"}), 500
     return jsonify({"status": "success", "message": "如果该邮箱已注册，重置邮件已发送"})
 
 
@@ -671,7 +724,7 @@ def admin_dashboard():
 @require_admin
 def admin_users():
     page = request.args.get('page', 1, type=int)
-    per_page = min(request.args.get('per_page', 20, type=int), 100)
+    per_page = min(request.args.get('per_page', ADMIN_DEFAULT_PER_PAGE, type=int), ADMIN_MAX_PER_PAGE)
     search = request.args.get('search', None)
     result = admin_service.get_all_users(page, per_page, search)
     return jsonify({"status": "success", **result})
@@ -758,7 +811,7 @@ def admin_update_prompts():
 @require_admin
 def admin_get_feedback():
     page = request.args.get('page', 1, type=int)
-    per_page = min(request.args.get('per_page', 20, type=int), 100)
+    per_page = min(request.args.get('per_page', ADMIN_DEFAULT_PER_PAGE, type=int), ADMIN_MAX_PER_PAGE)
     status = request.args.get('status', None)
     result = admin_service.get_all_feedback(page, per_page, status)
     return jsonify({"status": "success", **result})
@@ -783,7 +836,7 @@ def admin_update_feedback(feedback_id):
 @require_admin
 def admin_get_logs():
     page = request.args.get('page', 1, type=int)
-    per_page = min(request.args.get('per_page', 20, type=int), 100)
+    per_page = min(request.args.get('per_page', ADMIN_DEFAULT_PER_PAGE, type=int), ADMIN_MAX_PER_PAGE)
     username = request.args.get('username', None)
     date_from = request.args.get('date_from', None)
     date_to = request.args.get('date_to', None)
@@ -820,6 +873,52 @@ def get_active_users():
 
 STATIC_DIR = os.path.join(os.path.dirname(__file__), 'static')
 
+_SITE_ORIGIN = SITE_URL.rstrip('/')
+
+@app.route('/robots.txt')
+def robots_txt():
+    content = f"""User-agent: *
+Allow: /
+Disallow: /admin
+Disallow: /api/
+Disallow: /login
+Disallow: /forgot-password
+Disallow: /reset-password
+Disallow: /account
+
+Sitemap: {_SITE_ORIGIN}/sitemap.xml
+"""
+    return app.response_class(content, mimetype='text/plain')
+
+
+@app.route('/sitemap.xml')
+def sitemap_xml():
+    pages = [
+        ('/', '1.0', 'weekly'),
+        ('/guide', '0.8', 'monthly'),
+        ('/records', '0.6', 'daily'),
+        ('/settings', '0.4', 'monthly'),
+        ('/disclaimer', '0.3', 'yearly'),
+        ('/terms-privacy', '0.3', 'yearly'),
+        ('/feedback', '0.4', 'monthly'),
+    ]
+    urls = []
+    for path, priority, freq in pages:
+        urls.append(
+            f'  <url>\n'
+            f'    <loc>{_SITE_ORIGIN}{path}</loc>\n'
+            f'    <changefreq>{freq}</changefreq>\n'
+            f'    <priority>{priority}</priority>\n'
+            f'  </url>'
+        )
+    xml = (
+        '<?xml version="1.0" encoding="UTF-8"?>\n'
+        '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n'
+        + '\n'.join(urls) + '\n'
+        '</urlset>\n'
+    )
+    return app.response_class(xml, mimetype='application/xml')
+
 
 # SPA fallback
 @app.route('/', defaults={'path': ''})
@@ -832,11 +931,14 @@ def serve_spa(path):
 
 
 if __name__ == '__main__':
+    from db_backup import start_backup_scheduler
+    start_backup_scheduler()
+
     debug = os.environ.get('FLASK_DEBUG', 'false').lower() == 'true'
     cert_file = os.path.join(ROOT_DIR, 'certs', 'cert.pem')
     key_file = os.path.join(ROOT_DIR, 'certs', 'key.pem')
     ssl_ctx = None
     if os.path.isfile(cert_file) and os.path.isfile(key_file):
         ssl_ctx = (cert_file, key_file)
-        print(f' * HTTPS enabled: https://0.0.0.0:9001')
+        logger.info('HTTPS enabled: https://0.0.0.0:9001')
     app.run(debug=debug, host='0.0.0.0', port=9001, ssl_context=ssl_ctx)

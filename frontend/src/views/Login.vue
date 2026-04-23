@@ -101,6 +101,7 @@ import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { login, register, getCaptcha, getQuotaConfig } from '../api/index.js'
 import { t } from '../utils/locale.js'
+import { showToast } from '../utils/toast.js'
 
 const router = useRouter()
 const isLogin = ref(true)
@@ -167,20 +168,20 @@ function agreeAndSubmit() {
 
 async function handleSubmit() {
   if (!username.value.trim()) {
-    alert(t('请输入用户名'))
+    showToast(t('请输入用户名'), 'warning')
     return
   }
   if (!password.value) {
-    alert(t('请输入密码'))
+    showToast(t('请输入密码'), 'warning')
     return
   }
   if (!isLogin.value) {
     if (password.value.length < 6) {
-      alert(t('密码长度不能少于6个字符'))
+      showToast(t('密码长度不能少于6个字符'), 'warning')
       return
     }
     if (!captchaText.value.trim()) {
-      alert(t('请输入验证码'))
+      showToast(t('请输入验证码'), 'warning')
       return
     }
   }
@@ -204,11 +205,11 @@ async function handleSubmit() {
       sessionStorage.removeItem('liuyao_ref_code')
       router.replace('/account')
     } else {
-      alert(result.error || t('操作失败'))
+      showToast(result.error || t('操作失败'), 'error')
     }
   } catch (e) {
     const msg = e.response?.data?.error || t('网络错误，请稍后重试')
-    alert(msg)
+    showToast(msg, 'error')
     if (!isLogin.value) refreshCaptcha()
   } finally {
     loading.value = false

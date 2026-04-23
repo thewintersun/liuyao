@@ -9,6 +9,7 @@ certs/
 backups/
 
 # 日志
+logs/
 llm_log*.txt
 
 # Python
@@ -34,3 +35,6 @@ static/
 # Node
 frontend/node_modules/
 frontend/dist/
+
+
+docs/superpowers/

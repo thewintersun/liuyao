@@ -22,6 +22,7 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 import { getAdminPrompts, updateAdminPrompts } from '../../api/index.js'
+import { showToast } from '../../utils/toast.js'
 
 const prompts = ref({
   SYSTEM_PROMPT: '',
@@ -41,7 +42,7 @@ onMounted(async () => {
 
 async function handleSave() {
   if (!prompts.value.LIUYAO_PROMPT.includes('{liuyao_data}')) {
-    alert('六爻分析提示词必须包含 {liuyao_data} 占位符')
+    showToast('六爻分析提示词必须包含 {liuyao_data} 占位符', 'warning')
     return
   }
   saving.value = true
@@ -51,7 +52,7 @@ async function handleSave() {
     saved.value = true
     setTimeout(() => { saved.value = false }, 2000)
   } catch (e) {
-    alert('保存失败')
+    showToast('保存失败', 'error')
   } finally {
     saving.value = false
   }

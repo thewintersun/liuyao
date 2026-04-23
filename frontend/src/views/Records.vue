@@ -4,7 +4,7 @@
     <div v-if="records.length === 0" class="empty-state">{{ $t('暂无保存的卦例信息') }}</div>
     <div v-else class="record-list">
       <div class="record-item" v-for="record in records" :key="record.id">
-        <div class="record-info" @click="openRecord(record)">
+        <div class="record-info touchable" @click="openRecord(record)">
           <span class="record-title">{{ record.title }}</span>
           <span v-if="record.messages" class="record-badge">{{ $t('已解卦') }}</span>
           <span v-else-if="record.yaoValues" class="record-badge badge-paipan">{{ $t('已排盘') }}</span>

@@ -1,8 +1,8 @@
 <template>
   <div class="chat-page">
+    <button v-if="guaXiangInfo" class="share-btn" @click="showShareModal = true">{{ $t('分享') }}</button>
     <div class="chat-tip">
       <span>{{ $t('您可以继续针对结果继续追问') }}</span>
-      <button v-if="guaXiangInfo" class="share-btn" @click="showShareModal = true">{{ $t('分享图片') }}</button>
     </div>
 
     <div class="chat-messages" ref="messagesRef">
@@ -33,21 +33,36 @@
       <button class="send-btn" @click="send" :disabled="loading || !inputText.trim()">{{ $t('发送') }}</button>
     </div>
 
-    <!-- 分享图片模态框 -->
-    <div class="share-overlay" v-if="showShareModal" @click.self="showShareModal = false">
+    <!-- 分享图片模态框：预览模式（内部滚动） -->
+    <div class="share-overlay" v-if="showShareModal && !generatedImageUrl" @click.self="closeShareModal">
       <div class="share-modal">
         <div class="share-modal-header">
           <span class="share-modal-title">{{ $t('分享图片') }}</span>
-          <span class="share-modal-close" @click="showShareModal = false">&times;</span>
+          <span class="share-modal-close" @click="closeShareModal">&times;</span>
         </div>
         <div class="share-card-wrapper" ref="shareCardWrapperRef">
           <ShareCard ref="shareCardRef" :guaXiangInfo="guaXiangInfo" :message="firstAssistantMessage" />
         </div>
         <div class="share-modal-actions">
           <button class="btn-primary" @click="generateImage" :disabled="generating">
-            {{ generating ? $t('生成中...') : $t('保存图片') }}
+            {{ generating ? $t('生成中...') : $t('生成图片') }}
           </button>
         </div>
+      </div>
+    </div>
+    <!-- 分享图片模态框：图片模式（整页滚动，无嵌套滚动容器） -->
+    <div class="share-overlay share-overlay--image" v-if="showShareModal && generatedImageUrl" @click.self="closeShareModal">
+      <div class="share-image-page">
+        <div class="share-image-header">
+          <span class="share-modal-title">{{ $t('分享图片') }}</span>
+          <span class="share-modal-close" @click="closeShareModal">&times;</span>
+        </div>
+        <div class="share-image-actions">
+          <button v-if="canShare" class="btn-primary" @click="shareImage">{{ $t('保存/分享图片') }}</button>
+          <button class="btn-secondary" @click="downloadImage">{{ $t('下载图片') }}</button>
+        </div>
+        <p class="save-hint">{{ $t('也可长按下方图片直接保存') }}</p>
+        <img :src="generatedImageUrl" class="generated-image" alt="分享图片" />
       </div>
     </div>
 
@@ -85,6 +100,9 @@ const generating = ref(false)
 const guaXiangInfo = ref(null)
 const shareCardRef = ref(null)
 const shareCardWrapperRef = ref(null)
+const generatedImageUrl = ref(null)
+const generatedBlob = ref(null)
+const canShare = ref(typeof navigator.share === 'function' && typeof navigator.canShare === 'function')
 let guestFreeUses = 1
 
 const firstAssistantMessage = computed(() => {
@@ -274,15 +292,51 @@ async function generateImage() {
       scale: 2,
       useCORS: true
     })
-    const link = document.createElement('a')
-    link.download = '六爻解卦.png'
-    link.href = canvas.toDataURL('image/png')
-    link.click()
+    const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/png'))
+    generatedBlob.value = blob
+    // 用 Blob URL 而非 data URL，iOS Safari 能正确识别为图片
+    generatedImageUrl.value = URL.createObjectURL(blob)
   } catch (e) {
     console.error('生成图片失败:', e)
   } finally {
     generating.value = false
   }
+}
+
+function closeShareModal() {
+  if (generatedImageUrl.value) {
+    URL.revokeObjectURL(generatedImageUrl.value)
+  }
+  showShareModal.value = false
+  generatedImageUrl.value = null
+  generatedBlob.value = null
+}
+
+async function shareImage() {
+  if (!generatedBlob.value) return
+  try {
+    const file = new File([generatedBlob.value], '六爻解卦.png', { type: 'image/png' })
+    if (navigator.canShare && navigator.canShare({ files: [file] })) {
+      await navigator.share({ files: [file], title: '六爻解卦' })
+    } else {
+      // 不支持文件分享，降级为下载
+      downloadImage()
+    }
+  } catch (e) {
+    // 用户取消分享不算错误
+    if (e.name !== 'AbortError') {
+      console.error('分享失败:', e)
+      downloadImage()
+    }
+  }
+}
+
+function downloadImage() {
+  if (!generatedImageUrl.value) return
+  const link = document.createElement('a')
+  link.download = '六爻解卦.png'
+  link.href = generatedImageUrl.value
+  link.click()
 }
 
 async function scrollToBottom() {
@@ -295,6 +349,7 @@ async function scrollToBottom() {
 
 <style scoped>
 .chat-page {
+  position: relative;
   display: flex;
   flex-direction: column;
   height: calc(100vh - 44px - 60px);
@@ -311,6 +366,10 @@ async function scrollToBottom() {
   border-bottom: 1px solid var(--color-border);
 }
 .share-btn {
+  position: absolute;
+  top: 6px;
+  right: 12px;
+  z-index: 10;
   font-size: 12px;
   padding: 2px 10px;
   background: transparent;
@@ -319,7 +378,6 @@ async function scrollToBottom() {
   border-radius: 4px;
   cursor: pointer;
   white-space: nowrap;
-  flex-shrink: 0;
 }
 .chat-messages {
   flex: 1;
@@ -468,6 +526,11 @@ async function scrollToBottom() {
   justify-content: center;
   z-index: 300;
 }
+.share-overlay--image {
+  align-items: flex-start;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
 .share-modal {
   background: var(--color-card);
   border: 1px solid var(--color-border);
@@ -477,6 +540,9 @@ async function scrollToBottom() {
   max-height: 90vh;
   display: flex;
   flex-direction: column;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
 }
 .share-modal-header {
   display: flex;
@@ -519,5 +585,69 @@ async function scrollToBottom() {
 }
 .share-modal-actions .btn-primary:disabled {
   opacity: 0.5;
+}
+.share-modal-actions .btn-secondary {
+  width: 100%;
+  height: 40px;
+  background: transparent;
+  color: var(--color-text-secondary);
+  font-size: 14px;
+  border-radius: 4px;
+  border: 1px solid var(--color-border);
+  cursor: pointer;
+  margin-top: 8px;
+}
+.share-image-page {
+  width: 95%;
+  max-width: 440px;
+  margin: 20px auto;
+  text-align: center;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+.share-image-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+.share-image-actions {
+  margin-top: 12px;
+  margin-bottom: 20px;
+}
+.share-image-actions .btn-primary,
+.share-image-actions .btn-secondary {
+  width: 100%;
+  height: 40px;
+  font-size: 15px;
+  border-radius: 4px;
+  border: none;
+  cursor: pointer;
+}
+.share-image-actions .btn-primary {
+  background: var(--color-primary);
+  color: #141414;
+}
+.share-image-actions .btn-secondary {
+  background: transparent;
+  color: var(--color-text-secondary);
+  border: 1px solid var(--color-border);
+  margin-top: 8px;
+}
+.generated-image {
+  max-width: 100%;
+  border-radius: 4px;
+  -webkit-touch-callout: default !important;
+  -webkit-user-select: auto !important;
+}
+.save-hint {
+  color: var(--color-primary);
+  font-size: 14px;
+  font-weight: bold;
+  margin: 0;
+  -webkit-user-select: none;
+  user-select: none;
+  pointer-events: none;
 }
 </style>

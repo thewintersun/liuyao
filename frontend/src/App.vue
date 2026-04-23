@@ -22,6 +22,7 @@
     </div>
   </div>
 
+  <Toast />
   <div class="app-container">
     <div class="app-content">
       <NavBar />
@@ -37,6 +38,7 @@
 import { ref, onMounted } from 'vue'
 import TabBar from './components/TabBar.vue'
 import NavBar from './components/NavBar.vue'
+import Toast from './components/Toast.vue'
 import { reportInviteVisit } from './api/index.js'
 
 const showWechatGuide = ref(false)

@@ -31,6 +31,7 @@ const router = useRouter()
 
 function startNew() {
   sessionStorage.removeItem('liuyao_yaoInput_state')
+  sessionStorage.removeItem('liuyao_currentRecordId')
   router.push('/yao-input')
 }
 </script>

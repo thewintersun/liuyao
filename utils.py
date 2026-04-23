@@ -1,8 +1,12 @@
 import os
+import logging
 import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from email.header import Header
+from config import EMAIL_SMTP_SERVER, EMAIL_SMTP_PORT
+
+logger = logging.getLogger(__name__)
 
 
 
@@ -15,9 +19,8 @@ def send_email(subject, message, to_email=None):
         to_email: 收件人邮箱，如果为None则发送给管理员邮箱
     """
     try:
-        # 邮件发送配置
-        smtp_server = "smtp.163.com"
-        smtp_port = 465
+        smtp_server = EMAIL_SMTP_SERVER
+        smtp_port = EMAIL_SMTP_PORT
 
         # 发件人信息
         from_email = os.environ.get("EMAIL_ADDRESS", "aswemaythink@163.com")
@@ -41,12 +44,10 @@ def send_email(subject, message, to_email=None):
             server.login(from_email, password)
             server.sendmail(from_email, to_email, msg.as_string())
 
-        print(f"邮件已成功发送到 {to_email}")
+        logger.info(f"邮件已成功发送到 {to_email}")
         return True
     except Exception as e:
-        import traceback
-        traceback.print_exc()
-        print(f"发送邮件失败: {str(e)}")
+        logger.error(f"发送邮件失败 (收件人: {to_email}): {e}", exc_info=True)
         return False
 
 

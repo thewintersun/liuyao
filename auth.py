@@ -1,8 +1,11 @@
 import os
 import json
+import logging
 import sqlite3
 import time
 import secrets
+import queue
+import threading
 from functools import wraps
 from flask import request, g, jsonify
 from werkzeug.security import generate_password_hash, check_password_hash
@@ -10,17 +13,71 @@ import re
 import jwt
 from config import (JWT_SECRET, JWT_EXPIRY, REGISTERED_FREE_USES, GUEST_FREE_USES,
                      INVITE_VISIT_REWARD, INVITE_REGISTER_REWARD, INVITE_REGISTER_BONUS,
-                     INVITE_MONTHLY_LIMIT, INVITE_IP_DAILY_LIMIT)
+                     INVITE_MONTHLY_LIMIT, INVITE_IP_DAILY_LIMIT,
+                     USERNAME_MIN_LENGTH, USERNAME_MAX_LENGTH, PASSWORD_MIN_LENGTH,
+                     PASSWORD_RESET_TOKEN_EXPIRY_MINUTES, PASSWORD_RESET_TOKEN_CLEANUP_HOURS,
+                     IP_LOCATION_CACHE_TTL, IP_LOCATION_QUERY_TIMEOUT,
+                     INVITE_RECORDS_QUERY_LIMIT)
+
+logger = logging.getLogger(__name__)
 
 EMAIL_RE = re.compile(r'^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$')
 
 DB_PATH = os.path.join(os.path.dirname(__file__), 'users.db')
 
 
+# ========== SQLite 连接池 ==========
+
+class _DBPool:
+    """基于队列的 SQLite 连接池，复用连接避免频繁创建/销毁开销"""
+
+    def __init__(self, path, max_size=8):
+        self._path = path
+        self._pool = queue.Queue(maxsize=max_size)
+
+    def acquire(self):
+        try:
+            conn = self._pool.get_nowait()
+            try:
+                conn.execute('SELECT 1')
+                return conn
+            except Exception:
+                try:
+                    conn.close()
+                except Exception:
+                    pass
+        except queue.Empty:
+            pass
+        conn = sqlite3.connect(self._path, check_same_thread=False)
+        conn.row_factory = sqlite3.Row
+        conn.execute('PRAGMA journal_mode=WAL')
+        conn.execute('PRAGMA busy_timeout=5000')
+        return conn
+
+    def release(self, conn):
+        if conn is None:
+            return
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+        try:
+            self._pool.put_nowait(conn)
+        except queue.Full:
+            conn.close()
+
+
+_db_pool = _DBPool(DB_PATH)
+
+
 def get_db():
-    db = sqlite3.connect(DB_PATH)
-    db.row_factory = sqlite3.Row
-    return db
+    """从连接池获取一个数据库连接，用完后必须调用 release_db() 归还"""
+    return _db_pool.acquire()
+
+
+def release_db(db):
+    """将数据库连接归还到连接池"""
+    _db_pool.release(db)
 
 
 def generate_invite_code(db=None):
@@ -37,10 +94,10 @@ def generate_invite_code(db=None):
         existing = db.execute('SELECT id FROM users WHERE invite_code = ?', (code,)).fetchone()
         if not existing:
             if close_db:
-                db.close()
+                release_db(db)
             return code
     if close_db:
-        db.close()
+        release_db(db)
     return secrets.token_hex(3).upper()[:6]
 
 
@@ -206,17 +263,25 @@ def init_db():
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )''')
 
+    # 创建索引（高频查询字段）
+    db.execute('CREATE INDEX IF NOT EXISTS idx_users_email ON users(email)')
+    db.execute('CREATE INDEX IF NOT EXISTS idx_users_invite_code ON users(invite_code)')
+    db.execute('CREATE INDEX IF NOT EXISTS idx_usage_log_user_id ON usage_log(user_id)')
+    db.execute('CREATE INDEX IF NOT EXISTS idx_usage_log_session_id ON usage_log(session_id)')
+    db.execute('CREATE INDEX IF NOT EXISTS idx_conversations_user_id ON conversations(user_id)')
+    db.execute('CREATE INDEX IF NOT EXISTS idx_invite_records_inviter_id ON invite_records(inviter_id)')
+
     db.commit()
-    db.close()
+    release_db(db)
 
 
 def register_user(username, password, email=None, agreed_version=None, agreed_at=None, agreed_ip=None, invite_code=None):
     if not username or not password:
         return None, '用户名和密码不能为空'
-    if len(username) < 2 or len(username) > 20:
-        return None, '用户名长度需在2-20个字符之间'
-    if len(password) < 6:
-        return None, '密码长度不能少于6个字符'
+    if len(username) < USERNAME_MIN_LENGTH or len(username) > USERNAME_MAX_LENGTH:
+        return None, f'用户名长度需在{USERNAME_MIN_LENGTH}-{USERNAME_MAX_LENGTH}个字符之间'
+    if len(password) < PASSWORD_MIN_LENGTH:
+        return None, f'密码长度不能少于{PASSWORD_MIN_LENGTH}个字符'
     if email and email.strip() and not EMAIL_RE.match(email.strip()):
         return None, '邮箱格式不正确'
 
@@ -262,7 +327,7 @@ def register_user(username, password, email=None, agreed_version=None, agreed_at
     except sqlite3.IntegrityError:
         return None, '用户名已存在'
     finally:
-        db.close()
+        release_db(db)
 
 
 def login_user(username, password, ip=None):
@@ -273,12 +338,12 @@ def login_user(username, password, ip=None):
     user = db.execute('SELECT * FROM users WHERE username = ?', (username,)).fetchone()
 
     if not user or not check_password_hash(user['password_hash'], password):
-        db.close()
+        release_db(db)
         return None, '用户名或密码错误'
 
     # 检查是否被封禁
     if user['role'] == 'banned':
-        db.close()
+        release_db(db)
         return None, '账户已被封禁'
 
     # 记录最后登录 IP 和时间
@@ -289,7 +354,7 @@ def login_user(username, password, ip=None):
         )
         db.commit()
 
-    db.close()
+    release_db(db)
 
     token = _generate_token(user['id'], user['username'], user['token_version'] or 0)
     return {
@@ -308,7 +373,7 @@ def login_user(username, password, ip=None):
 def get_user_info(user_id):
     db = get_db()
     user = db.execute('SELECT * FROM users WHERE id = ?', (user_id,)).fetchone()
-    db.close()
+    release_db(db)
     if not user:
         return None
     return {
@@ -325,7 +390,7 @@ def check_credit(user_id):
     """检查用户是否还有额度（不扣减）"""
     db = get_db()
     user = db.execute('SELECT free_uses FROM users WHERE id = ?', (user_id,)).fetchone()
-    db.close()
+    release_db(db)
     return bool(user and user['free_uses'] > 0)
 
 
@@ -337,23 +402,26 @@ def log_usage(action, session_id=None, user_id=None, ip=None):
         (user_id, action, session_id, ip)
     )
     db.commit()
-    db.close()
+    release_db(db)
 
 
 def use_credit(user_id, action, session_id=None, ip=None):
     db = get_db()
-    user = db.execute('SELECT free_uses FROM users WHERE id = ?', (user_id,)).fetchone()
-    if not user or user['free_uses'] <= 0:
-        db.close()
+    # 原子操作：仅当 free_uses > 0 时才扣减，避免并发竞态
+    cursor = db.execute(
+        'UPDATE users SET free_uses = free_uses - 1 WHERE id = ? AND free_uses > 0',
+        (user_id,)
+    )
+    if cursor.rowcount == 0:
+        release_db(db)
         return False, 0
-    db.execute('UPDATE users SET free_uses = free_uses - 1 WHERE id = ?', (user_id,))
     db.execute(
         'INSERT INTO usage_log (user_id, action, session_id, ip) VALUES (?, ?, ?, ?)',
         (user_id, action, session_id, ip)
     )
     db.commit()
     remaining = db.execute('SELECT free_uses FROM users WHERE id = ?', (user_id,)).fetchone()['free_uses']
-    db.close()
+    release_db(db)
     return True, remaining
 
 
@@ -389,7 +457,7 @@ def require_auth(f):
         # 封禁检查 + token 版本校验
         db = get_db()
         user = db.execute('SELECT role, token_version FROM users WHERE id = ?', (payload['user_id'],)).fetchone()
-        db.close()
+        release_db(db)
         if not user:
             return jsonify({'error': 'unauthorized', 'message': '用户不存在'}), 401
         if user['role'] == 'banned':
@@ -407,7 +475,7 @@ def require_admin(f):
     def decorated(*args, **kwargs):
         db = get_db()
         user = db.execute('SELECT role FROM users WHERE id = ?', (g.user_id,)).fetchone()
-        db.close()
+        release_db(db)
         if not user or user['role'] != 'admin':
             return jsonify({'error': 'forbidden', 'message': '需要管理员权限'}), 403
         return f(*args, **kwargs)
@@ -426,7 +494,7 @@ def optional_auth(f):
                 # 封禁检查 + token 版本校验：不通过则视为未登录
                 db = get_db()
                 user = db.execute('SELECT role, token_version FROM users WHERE id = ?', (payload['user_id'],)).fetchone()
-                db.close()
+                release_db(db)
                 if user and user['role'] != 'banned' and payload.get('tv', 0) == (user['token_version'] or 0):
                     g.user_id = payload['user_id']
                     g.username = payload['username']
@@ -446,7 +514,7 @@ def _extract_token():
 def get_user_records(user_id):
     db = get_db()
     rows = db.execute('SELECT * FROM records WHERE user_id = ? ORDER BY created_at DESC', (user_id,)).fetchall()
-    db.close()
+    release_db(db)
     records = []
     for row in rows:
         records.append(_row_to_record(row))
@@ -456,7 +524,7 @@ def get_user_records(user_id):
 def get_user_record_by_id(record_id, user_id):
     db = get_db()
     row = db.execute('SELECT * FROM records WHERE id = ? AND user_id = ?', (record_id, user_id)).fetchone()
-    db.close()
+    release_db(db)
     if not row:
         return None
     return _row_to_record(row)
@@ -483,7 +551,7 @@ def create_user_record(user_id, record_data):
     )
     db.commit()
     row = db.execute('SELECT * FROM records WHERE id = ?', (record_id,)).fetchone()
-    db.close()
+    release_db(db)
     return _row_to_record(row)
 
 
@@ -518,7 +586,7 @@ def update_user_record(record_id, user_id, updates):
     )
     db.commit()
     affected = cursor.rowcount
-    db.close()
+    release_db(db)
     return affected > 0
 
 
@@ -527,7 +595,7 @@ def delete_user_record(record_id, user_id):
     cursor = db.execute('DELETE FROM records WHERE id = ? AND user_id = ?', (record_id, user_id))
     db.commit()
     affected = cursor.rowcount
-    db.close()
+    release_db(db)
     return affected > 0
 
 
@@ -560,22 +628,22 @@ def change_password(user_id, old_password, new_password):
     """用户自行修改密码，需验证旧密码"""
     if not old_password or not new_password:
         return False, '请填写完整'
-    if len(new_password) < 6:
-        return False, '新密码长度不能少于6个字符'
+    if len(new_password) < PASSWORD_MIN_LENGTH:
+        return False, f'新密码长度不能少于{PASSWORD_MIN_LENGTH}个字符'
     db = get_db()
     user = db.execute('SELECT password_hash FROM users WHERE id = ?', (user_id,)).fetchone()
     if not user:
-        db.close()
+        release_db(db)
         return False, '用户不存在'
     if not check_password_hash(user['password_hash'], old_password):
-        db.close()
+        release_db(db)
         return False, '原密码错误'
     db.execute(
         'UPDATE users SET password_hash = ?, token_version = COALESCE(token_version, 0) + 1 WHERE id = ?',
         (generate_password_hash(new_password), user_id)
     )
     db.commit()
-    db.close()
+    release_db(db)
     return True, None
 
 
@@ -592,12 +660,12 @@ def change_email(user_id, new_email):
     # 检查邮箱是否已被其他用户使用
     existing = db.execute('SELECT id FROM users WHERE email = ? AND id != ?', (new_email, user_id)).fetchone()
     if existing:
-        db.close()
+        release_db(db)
         return False, '该邮箱已被其他账户使用'
     cursor = db.execute('UPDATE users SET email = ? WHERE id = ?', (new_email, user_id))
     db.commit()
     affected = cursor.rowcount
-    db.close()
+    release_db(db)
     if affected == 0:
         return False, '用户不存在'
     return True, None
@@ -607,8 +675,8 @@ def change_email(user_id, new_email):
 
 def reset_password(user_id, new_password):
     """直接重置密码（管理员用）"""
-    if not new_password or len(new_password) < 6:
-        return False, '密码长度不能少于6个字符'
+    if not new_password or len(new_password) < PASSWORD_MIN_LENGTH:
+        return False, f'密码长度不能少于{PASSWORD_MIN_LENGTH}个字符'
     db = get_db()
     cursor = db.execute(
         'UPDATE users SET password_hash = ?, token_version = COALESCE(token_version, 0) + 1 WHERE id = ?',
@@ -616,7 +684,7 @@ def reset_password(user_id, new_password):
     )
     db.commit()
     affected = cursor.rowcount
-    db.close()
+    release_db(db)
     if affected == 0:
         return False, '用户不存在'
     return True, None
@@ -628,11 +696,11 @@ def create_reset_token(email):
         return None, None
     db = get_db()
     # 清理过期和已使用的 token，防止表无限增长
-    db.execute("DELETE FROM password_reset_tokens WHERE used = 1 OR created_at < datetime('now', '-1 hour')")
+    db.execute(f"DELETE FROM password_reset_tokens WHERE used = 1 OR created_at < datetime('now', '-{PASSWORD_RESET_TOKEN_CLEANUP_HOURS} hour')")
     user = db.execute('SELECT id, username, email FROM users WHERE email = ?', (email.strip(),)).fetchone()
     if not user:
         db.commit()
-        db.close()
+        release_db(db)
         return None, None
     token = secrets.token_hex(32)
     db.execute(
@@ -640,7 +708,7 @@ def create_reset_token(email):
         (token, user['id'])
     )
     db.commit()
-    db.close()
+    release_db(db)
     return token, dict(user)
 
 
@@ -651,23 +719,23 @@ def validate_reset_token(token):
         "SELECT user_id, created_at, used FROM password_reset_tokens WHERE token = ?",
         (token,)
     ).fetchone()
-    db.close()
+    release_db(db)
     if not row:
         return None
     if row['used']:
         return None
-    # 检查是否在 30 分钟内
-    from datetime import datetime, timedelta
-    created = datetime.strptime(row['created_at'], '%Y-%m-%d %H:%M:%S')
-    if datetime.utcnow() - created > timedelta(minutes=30):
+    # 检查是否在有效期内
+    from datetime import datetime, timedelta, timezone
+    created = datetime.strptime(row['created_at'], '%Y-%m-%d %H:%M:%S').replace(tzinfo=timezone.utc)
+    if datetime.now(timezone.utc) - created > timedelta(minutes=PASSWORD_RESET_TOKEN_EXPIRY_MINUTES):
         return None
     return row['user_id']
 
 
 def reset_password_with_token(token, new_password):
     """验证 token 后重置密码"""
-    if not new_password or len(new_password) < 6:
-        return False, '密码长度不能少于6个字符'
+    if not new_password or len(new_password) < PASSWORD_MIN_LENGTH:
+        return False, f'密码长度不能少于{PASSWORD_MIN_LENGTH}个字符'
     user_id = validate_reset_token(token)
     if not user_id:
         return False, '重置链接无效或已过期'
@@ -681,11 +749,13 @@ def reset_password_with_token(token, new_password):
         (token,)
     )
     db.commit()
-    db.close()
+    release_db(db)
     return True, None
 
 
 # ========== IP 地理位置查询 ==========
+
+_ip_location_cache = {}  # {ip: (location, timestamp)}
 
 def get_ip_location(ip):
     """通过 ip-api.com 查询 IP 地理位置，内网 IP 返回"本地网络"，异常返回"未知" """
@@ -694,15 +764,23 @@ def get_ip_location(ip):
     # 内网/本地 IP 判断
     if ip in ('127.0.0.1', '::1', 'localhost') or ip.startswith(('10.', '192.168.', '172.16.', '172.17.', '172.18.', '172.19.', '172.20.', '172.21.', '172.22.', '172.23.', '172.24.', '172.25.', '172.26.', '172.27.', '172.28.', '172.29.', '172.30.', '172.31.')):
         return '本地网络'
+    # 检查缓存
+    cached = _ip_location_cache.get(ip)
+    if cached:
+        location, ts = cached
+        if time.time() - ts < IP_LOCATION_CACHE_TTL:
+            return location
     try:
         import urllib.request
         url = f'http://ip-api.com/json/{ip}?lang=zh-CN&fields=status,country,regionName,city'
         req = urllib.request.Request(url, headers={'User-Agent': 'liuyao-app'})
-        with urllib.request.urlopen(req, timeout=3) as resp:
+        with urllib.request.urlopen(req, timeout=IP_LOCATION_QUERY_TIMEOUT) as resp:
             data = json.loads(resp.read().decode('utf-8'))
             if data.get('status') == 'success':
                 parts = [data.get('country', ''), data.get('regionName', ''), data.get('city', '')]
-                return ' '.join(p for p in parts if p)
+                location = ' '.join(p for p in parts if p)
+                _ip_location_cache[ip] = (location, time.time())
+                return location
     except Exception:
         pass
     return '未知'
@@ -785,7 +863,7 @@ def process_invite_visit(invite_code, visitor_ip):
         db.commit()
         return True, None
     finally:
-        db.close()
+        release_db(db)
 
 
 def get_invite_stats(user_id):
@@ -817,8 +895,8 @@ def get_invite_stats(user_id):
                FROM invite_records ir
                LEFT JOIN users u ON ir.invitee_id = u.id
                WHERE ir.inviter_id = ?
-               ORDER BY ir.id DESC LIMIT 50''',
-            (user_id,)
+               ORDER BY ir.id DESC LIMIT ?''',
+            (user_id, INVITE_RECORDS_QUERY_LIMIT)
         ).fetchall()
 
         monthly_limit = _get_config_int(db, 'INVITE_MONTHLY_LIMIT', INVITE_MONTHLY_LIMIT)
@@ -833,7 +911,7 @@ def get_invite_stats(user_id):
             'records': [dict(r) for r in records]
         }
     finally:
-        db.close()
+        release_db(db)
 
 
 def save_conversation(session_id, user_id, messages_json, gua_xiang_info=None, category=None, background=None):
@@ -850,6 +928,6 @@ def save_conversation(session_id, user_id, messages_json, gua_xiang_info=None, c
         )
         db.commit()
     except Exception as e:
-        print(f"保存对话失败: {e}")
+        logger.error(f"保存对话失败: {e}")
     finally:
-        db.close()
+        release_db(db)

@@ -5,11 +5,11 @@ import uuid
 import base64
 from io import BytesIO
 from captcha.image import ImageCaptcha
+from config import (CAPTCHA_LENGTH, CAPTCHA_EXPIRY_SECONDS,
+                     CAPTCHA_IMAGE_WIDTH, CAPTCHA_IMAGE_HEIGHT)
 
 # 排除易混淆字符 0/O/1/I/l
 CHARS = ''.join(c for c in string.ascii_uppercase + string.digits if c not in 'OI01')
-CAPTCHA_LENGTH = 4
-CAPTCHA_EXPIRE = 300  # 5分钟
 
 # 内存存储: {captcha_id: (answer, expiry_timestamp)}
 _store = {}
@@ -29,14 +29,14 @@ def generate_captcha():
     text = ''.join(random.choices(CHARS, k=CAPTCHA_LENGTH))
     captcha_id = uuid.uuid4().hex[:16]
 
-    image_captcha = ImageCaptcha(width=160, height=60)
+    image_captcha = ImageCaptcha(width=CAPTCHA_IMAGE_WIDTH, height=CAPTCHA_IMAGE_HEIGHT)
     img = image_captcha.generate_image(text)
 
     buf = BytesIO()
     img.save(buf, format='PNG')
     b64 = base64.b64encode(buf.getvalue()).decode('ascii')
 
-    _store[captcha_id] = (text.upper(), time.time() + CAPTCHA_EXPIRE)
+    _store[captcha_id] = (text.upper(), time.time() + CAPTCHA_EXPIRY_SECONDS)
     return captcha_id, f'data:image/png;base64,{b64}'
 
 

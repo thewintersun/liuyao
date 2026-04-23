@@ -31,6 +31,7 @@
 import { ref } from 'vue'
 import { forgotPassword } from '../api/index.js'
 import { t } from '../utils/locale.js'
+import { showToast } from '../utils/toast.js'
 
 const email = ref('')
 const loading = ref(false)
@@ -38,7 +39,7 @@ const sent = ref(false)
 
 async function handleSubmit() {
   if (!email.value.trim()) {
-    alert(t('请输入邮箱'))
+    showToast(t('请输入邮箱'), 'warning')
     return
   }
   loading.value = true
@@ -47,7 +48,7 @@ async function handleSubmit() {
     sent.value = true
   } catch (e) {
     const msg = e.response?.data?.error || t('网络错误，请稍后重试')
-    alert(msg)
+    showToast(msg, 'error')
   } finally {
     loading.value = false
   }

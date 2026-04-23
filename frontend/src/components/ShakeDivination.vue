@@ -65,8 +65,8 @@
       <!-- 移动端摇晃提示 -->
       <div v-else-if="isMobile && motionActivated && phase === 'idle'" class="shake-prompt">
         <div class="shake-icon">📳</div>
-        <p class="shake-hint-main">摇动手机起卦</p>
-        <p class="shake-hint-sub">拿起手机，用力摇晃</p>
+        <p class="shake-hint-main">集中精神默想所问之事</p>
+        <p class="shake-hint-sub">摇动手机起卦</p>
       </div>
     </div>
 
@@ -89,6 +89,7 @@
       </template>
       <!-- 桌面端 -->
       <template v-else>
+        <p v-if="phase === 'idle'" class="desktop-hint">集中精神默想所问之事</p>
         <button
           v-if="phase === 'idle'"
           class="btn-primary action-btn"
@@ -240,6 +241,7 @@ function emitComplete() {
 
   // 直接处理导航，不依赖 emit 回调（微信 X5 等内置浏览器中 emit 可能不触发父组件）
   try {
+    sessionStorage.removeItem('liuyao_currentRecordId')
     if (props.dateInfo) {
       sessionStorage.setItem('liuyao_date', JSON.stringify(props.dateInfo))
     }
@@ -586,6 +588,12 @@ defineExpose({ motionSupported })
   font-size: 14px;
 }
 
+.desktop-hint {
+  color: var(--color-text-secondary);
+  font-size: 16px;
+  text-align: center;
+  margin: 0 0 8px;
+}
 .action-btn {
   width: 100%;
   height: 50px;

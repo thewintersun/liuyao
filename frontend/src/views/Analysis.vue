@@ -50,6 +50,7 @@ import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { submitHexagram, getQuotaConfig } from '../api/index.js'
 import { t } from '../utils/locale.js'
+import { showToast } from '../utils/toast.js'
 
 const router = useRouter()
 const inputText = ref('')
@@ -90,7 +91,7 @@ function goInvite() {
 
 async function submit() {
   if (!inputText.value.trim()) {
-    alert(t('请输入起卦时所求之事，这是必填项'))
+    showToast(t('请输入起卦时所求之事，这是必填项'), 'warning')
     return
   }
 
@@ -98,7 +99,7 @@ async function submit() {
   const category = JSON.parse(sessionStorage.getItem('liuyao_category') || '{}')
 
   if (!guaXiangInfo.maingua_liuqin) {
-    alert(t('无法获取卦象数据'))
+    showToast(t('无法获取卦象数据'), 'error')
     return
   }
 
@@ -124,13 +125,13 @@ async function submit() {
       sessionStorage.setItem('liuyao_background', inputText.value.trim())
       router.push('/chat')
     } else {
-      alert(t('解卦失败，请重试'))
+      showToast(t('解卦失败，请重试'), 'error')
     }
   } catch (e) {
     if (e.response?.status === 403 && e.response?.data?.error === 'no_credit') {
       showNoCreditDialog.value = true
     } else {
-      alert(t('请求失败，请检查网络连接后重试'))
+      showToast(t('请求失败，请检查网络连接后重试'), 'error')
     }
   } finally {
     loading.value = false
