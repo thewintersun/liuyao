@@ -14,7 +14,7 @@ load_dotenv()
 # DeepSeek API配置
 DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY", "")
 DEEPSEEK_API_BASE = os.getenv("DEEPSEEK_API_BASE", "https://api.deepseek.com")
-DEEPSEEK_DEFAULT_MODEL = "deepseek-chat"
+DEEPSEEK_DEFAULT_MODEL = "deepseek-v4-flash"
 
 SYSTEM_PROMPT = """
 【角色】
