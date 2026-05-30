@@ -53,6 +53,10 @@
         {{ pwdLoading ? $t('提交中...') : $t('确认修改') }}
       </button>
     </div>
+
+    <div class="logout-section">
+      <button class="btn-logout" @click="handleLogout">{{ $t('退出登录') }}</button>
+    </div>
   </div>
 </template>
 
@@ -128,6 +132,12 @@ async function handleChangeEmail() {
   } finally {
     emailLoading.value = false
   }
+}
+
+function handleLogout() {
+  localStorage.removeItem('liuyao_token')
+  localStorage.removeItem('liuyao_user')
+  router.replace('/settings')
 }
 
 async function handleChangePwd() {
@@ -290,5 +300,19 @@ async function handleChangePwd() {
 }
 .btn-submit:disabled {
   opacity: 0.5;
+}
+.logout-section {
+  margin-top: 32px;
+  padding-bottom: 24px;
+}
+.btn-logout {
+  width: 100%;
+  height: 44px;
+  background: transparent;
+  color: var(--color-danger);
+  font-size: 15px;
+  border: 1px solid var(--color-danger);
+  border-radius: 4px;
+  cursor: pointer;
 }
 </style>

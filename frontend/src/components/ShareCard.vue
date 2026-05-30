@@ -1,7 +1,8 @@
 <template>
   <div ref="cardRef" :style="cardStyle">
     <!-- 标题 -->
-    <div :style="titleStyle">✦ 六爻解卦 ✦</div>
+    <div :style="titleStyle">✦ 六爻666 ✦</div>
+    <div :style="subtitleStyle">www.liuyao666.top</div>
 
     <!-- 时间信息 -->
     <div :style="infoStyle">
@@ -188,8 +189,16 @@ const titleStyle = {
   fontSize: '20px',
   fontWeight: 'bold',
   color: '#F9D47C',
-  padding: '8px 0 12px',
+  padding: '8px 0 2px',
   letterSpacing: '2px'
+}
+
+const subtitleStyle = {
+  textAlign: 'center',
+  fontSize: '11px',
+  color: '#999',
+  padding: '0 0 12px',
+  letterSpacing: '0.5px'
 }
 
 const infoStyle = {

@@ -38,12 +38,6 @@
       </div>
     </div>
 
-    <div class="menu-list" v-if="isLoggedIn" style="margin-top: 24px;">
-      <div class="menu-item logout-item" @click="handleLogout">
-        <span class="menu-title logout-text">{{ $t('退出登录') }}</span>
-      </div>
-    </div>
-
     <!-- 语言选择弹窗 -->
     <div class="lang-overlay" v-if="showLangPicker" @click.self="showLangPicker = false">
       <div class="lang-dialog">
@@ -111,12 +105,6 @@ function goAccount() {
   }
 }
 
-function handleLogout() {
-  localStorage.removeItem('liuyao_token')
-  localStorage.removeItem('liuyao_user')
-  isLoggedIn.value = false
-  username.value = ''
-}
 </script>
 
 <style scoped>
@@ -147,14 +135,6 @@ function handleLogout() {
 .menu-arrow {
   color: var(--color-text-secondary);
   font-size: 20px;
-}
-.logout-item {
-  justify-content: center;
-}
-.logout-text {
-  color: var(--color-danger);
-  text-align: center;
-  flex: none;
 }
 .lang-overlay {
   position: fixed;
