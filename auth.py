@@ -914,6 +914,34 @@ def get_invite_stats(user_id):
         release_db(db)
 
 
+def get_session_owner(session_id):
+    """返回 session_id 的归属用户 id
+
+    返回值:
+        (False, None)      — 该 session_id 无归属记录（新会话或游客会话）
+        (True, user_id)    — 该 session_id 已有归属，user_id 可能为 None（游客产生的会话）
+    """
+    if not session_id:
+        return False, None
+    db = get_db()
+    try:
+        row = db.execute(
+            'SELECT user_id FROM records WHERE session_id = ? LIMIT 1', (session_id,)
+        ).fetchone()
+        if row is None:
+            row = db.execute(
+                'SELECT user_id FROM conversations WHERE session_id = ? LIMIT 1', (session_id,)
+            ).fetchone()
+        if row is None:
+            return False, None
+        return True, row['user_id']
+    except Exception as e:
+        logger.error(f"查询会话归属失败: {e}")
+        return False, None
+    finally:
+        release_db(db)
+
+
 def save_conversation(session_id, user_id, messages_json, gua_xiang_info=None, category=None, background=None):
     """自动保存/更新对话到 conversations 表"""
     db = get_db()

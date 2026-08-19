@@ -130,8 +130,13 @@ class DialogManager:
         tail = other[-4:] if len(other) > 6 else other[2:]
         conversation.messages = system_messages + head + tail
 
-    def restore_conversation(self, conversation_id, messages, lang=None):
-        """用历史消息重建会话"""
+    def restore_conversation(self, conversation_id, messages, lang=None, reuse_id=True):
+        """用历史消息重建会话
+
+        reuse_id=True 时沿用原 conversation_id（内存会话超时/淘汰后恢复也保持同一 ID），
+        使同一卦的解卦与后续追问在 usage_log 中归属同一会话。
+        调用方需先确认该 conversation_id 属于当前用户，否则传 reuse_id=False。
+        """
         if conversation_id in self._conversation_dict:
             return conversation_id
         system_message = admin_service.get_prompt('SYSTEM_PROMPT') or SYSTEM_PROMPT
@@ -143,7 +148,7 @@ class DialogManager:
                 conversation.add_user_message(msg['content'])
             elif msg['role'] == 'assistant':
                 conversation.add_assistant_message(msg['content'])
-        new_id = str(uuid.uuid4())[:16]
+        new_id = conversation_id if (reuse_id and conversation_id) else str(uuid.uuid4())[:16]
         self.set_conversation(new_id, conversation)
         return new_id
 

@@ -23,7 +23,7 @@ from llm.common.config import LIUYAO_PROMPT
 from auth import (init_db, register_user, login_user, get_user_info, check_credit, use_credit, log_usage, require_auth, optional_auth, require_admin,
                   get_user_records, get_user_record_by_id, create_user_record, update_user_record, delete_user_record,
                   change_password, change_email, create_reset_token, validate_reset_token, reset_password_with_token,
-                  save_conversation, process_invite_visit, get_invite_stats)
+                  save_conversation, get_session_owner, process_invite_visit, get_invite_stats)
 from config import (GUEST_FREE_USES, REGISTERED_FREE_USES, SITE_URL,
                      INVITE_VISIT_REWARD, INVITE_REGISTER_REWARD, INVITE_REGISTER_BONUS,
                      RATE_LIMIT_CAPTCHA, RATE_LIMIT_LOGIN, RATE_LIMIT_GUEST_RECEIVE,
@@ -590,7 +590,14 @@ def chat_restore():
         if not isinstance(msg, dict) or 'role' not in msg or 'content' not in msg:
             return jsonify({"error": "消息格式不正确"}), 400
 
-    new_session_id = dialog_manager.restore_conversation(session_id, messages, lang=lang)
+    # 归属校验：仅当该 session_id 无归属、属于游客、或属于当前用户时才沿用原 ID，
+    # 避免前端传入他人的 session_id 后污染其会话日志分组与 conversations 记录
+    exists, owner_id = get_session_owner(session_id)
+    reuse_id = (not exists) or (owner_id is None) or (owner_id == g.user_id)
+    if not reuse_id:
+        logger.warning(f"会话 {session_id} 归属用户 {owner_id}，当前用户 {g.user_id}，恢复时另建会话ID")
+
+    new_session_id = dialog_manager.restore_conversation(session_id, messages, lang=lang, reuse_id=reuse_id)
     return jsonify({
         "status": "success",
         "session_id": new_session_id
