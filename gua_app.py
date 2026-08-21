@@ -8,7 +8,7 @@ from dotenv import load_dotenv
 load_dotenv()  # 最早加载 .env，确保后续 import 能读到环境变量
 from utils import send_email, send_reset_email
 import json
-from datetime import datetime, timezone
+from datetime import datetime
 import uuid
 from liuyao_utils import orgnize_data
 from dialog_manager import DialogManager
@@ -20,6 +20,7 @@ sys.path.insert(0, str(ROOT_DIR))
 from flask import Flask, request, jsonify, send_from_directory, g
 from flask_cors import CORS
 from llm.common.config import LIUYAO_PROMPT
+from time_utils import now_str
 from auth import (init_db, register_user, login_user, get_user_info, check_credit, use_credit, log_usage, require_auth, optional_auth, require_admin,
                   get_user_records, get_user_record_by_id, create_user_record, update_user_record, delete_user_record,
                   change_password, change_email, create_reset_token, validate_reset_token, reset_password_with_token,
@@ -72,12 +73,12 @@ def _cleanup_old_logs():
     """删除超过保留天数的旧日志文件"""
     try:
         import re
-        now = datetime.now(timezone.utc)
+        now = datetime.now()
         for fname in os.listdir(LLM_LOG_DIR):
             m = re.match(r'llm_log_(\d{4}-\d{2}-\d{2})(?:\.\d+)?\.txt$', fname)
             if not m:
                 continue
-            file_date = datetime.strptime(m.group(1), '%Y-%m-%d').replace(tzinfo=timezone.utc)
+            file_date = datetime.strptime(m.group(1), '%Y-%m-%d')
             age_days = (now - file_date).days
             if age_days > LLM_LOG_RETENTION_DAYS:
                 os.remove(os.path.join(LLM_LOG_DIR, fname))
@@ -105,7 +106,7 @@ def _extract_messages_json(session_id):
 def log_llm(session_id, direction, text):
     """追加记录 LLM 交互日志，按日期分文件，超过大小自动轮转"""
     try:
-        now = datetime.now(timezone.utc)
+        now = datetime.now()
         timestamp = now.strftime("%Y-%m-%d %H:%M:%S")
         date_str = now.strftime('%Y-%m-%d')
         log_path = os.path.join(LLM_LOG_DIR, f"llm_log_{date_str}.txt")
@@ -171,7 +172,7 @@ def api_register():
         return jsonify({"error": "验证码错误或已过期"}), 400
     terms_version = admin_service.get_system_config('terms_privacy_version') or '1.0'
     agreed_ip = get_client_ip(request)
-    agreed_at = datetime.now(timezone.utc)
+    agreed_at = now_str()
     result, error = register_user(
         data.get('username', ''),
         data.get('password', ''),
@@ -618,7 +619,7 @@ def feedback():
     try:
         feedback_content = data.get('feedback', '')
         contact_info = data.get('contact', '未提供')
-        timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+        timestamp = now_str()
 
         # 保存到数据库
         admin_service.create_feedback(g.user_id, feedback_content, contact_info)

@@ -2,6 +2,7 @@
 import json
 import logging
 from auth import get_db, release_db, reset_password, get_ip_location
+from time_utils import now_str
 
 logger = logging.getLogger(__name__)
 
@@ -21,11 +22,11 @@ def get_dashboard_stats(dialog_manager=None):
     db = get_db()
     total_users = db.execute('SELECT COUNT(*) as cnt FROM users').fetchone()['cnt']
     today_users = db.execute(
-        "SELECT COUNT(*) as cnt FROM users WHERE date(created_at) = date('now')"
+        "SELECT COUNT(*) as cnt FROM users WHERE date(created_at) = date('now', 'localtime')"
     ).fetchone()['cnt']
     total_divinations = db.execute('SELECT COUNT(*) as cnt FROM usage_log').fetchone()['cnt']
     today_divinations = db.execute(
-        "SELECT COUNT(*) as cnt FROM usage_log WHERE date(created_at) = date('now')"
+        "SELECT COUNT(*) as cnt FROM usage_log WHERE date(created_at) = date('now', 'localtime')"
     ).fetchone()['cnt']
     release_db(db)
 
@@ -79,12 +80,22 @@ def get_all_users(page=1, per_page=20, search=None):
 def get_user_detail(user_id):
     db = get_db()
     user = db.execute(
-        'SELECT id, username, role, free_uses, email, created_at, last_login_ip, last_login_at FROM users WHERE id = ?',
+        'SELECT id, username, role, free_uses, email, created_at, last_login_ip, last_login_at, invited_by FROM users WHERE id = ?',
         (user_id,)
     ).fetchone()
     if not user:
         release_db(db)
         return None
+
+    # 邀请人信息（users.invited_by 记录完整邀请关系，
+    # 即使当时因月度上限未发放奖励、invite_records 无记录，这里仍有值）
+    inviter = None
+    if user['invited_by']:
+        row = db.execute(
+            'SELECT id, username FROM users WHERE id = ?', (user['invited_by'],)
+        ).fetchone()
+        if row:
+            inviter = {'id': row['id'], 'username': row['username']}
 
     total_uses = db.execute(
         'SELECT COUNT(*) as cnt FROM usage_log WHERE user_id = ?',
@@ -101,7 +112,8 @@ def get_user_detail(user_id):
     result = {
         **dict(user),
         'total_uses': total_uses,
-        'action_stats': {row['action']: row['cnt'] for row in action_stats}
+        'action_stats': {row['action']: row['cnt'] for row in action_stats},
+        'inviter': inviter
     }
 
     # 查询 IP 地理位置（延迟查询，不在登录时调用）
@@ -170,8 +182,8 @@ def get_system_config(key):
 def update_system_config(key, value):
     db = get_db()
     db.execute(
-        'INSERT OR REPLACE INTO system_config (key, value, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)',
-        (key, value)
+        'INSERT OR REPLACE INTO system_config (key, value, updated_at) VALUES (?, ?, ?)',
+        (key, value, now_str())
     )
     db.commit()
     release_db(db)
@@ -209,8 +221,8 @@ def get_prompt(key):
 def update_prompt(key, value):
     db = get_db()
     db.execute(
-        'INSERT OR REPLACE INTO system_config (key, value, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)',
-        (key, value)
+        'INSERT OR REPLACE INTO system_config (key, value, updated_at) VALUES (?, ?, ?)',
+        (key, value, now_str())
     )
     db.commit()
     release_db(db)
@@ -228,8 +240,8 @@ def get_all_prompts():
 def create_feedback(user_id, feedback, contact):
     db = get_db()
     db.execute(
-        'INSERT INTO feedback (user_id, feedback, contact) VALUES (?, ?, ?)',
-        (user_id, feedback, contact)
+        'INSERT INTO feedback (user_id, feedback, contact, created_at) VALUES (?, ?, ?, ?)',
+        (user_id, feedback, contact, now_str())
     )
     db.commit()
     release_db(db)
@@ -320,7 +332,7 @@ def get_usage_logs(page=1, per_page=20, username=None, date_from=None, date_to=N
             l.session_id,
             l.ip,
             u.username,
-            datetime(MIN(l.created_at), 'localtime') as created_at,
+            MIN(l.created_at) as created_at,
             COUNT(*) as use_count,
             GROUP_CONCAT(l.action, ',') as actions
         FROM usage_log l

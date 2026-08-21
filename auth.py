@@ -18,6 +18,7 @@ from config import (JWT_SECRET, JWT_EXPIRY, REGISTERED_FREE_USES, GUEST_FREE_USE
                      PASSWORD_RESET_TOKEN_EXPIRY_MINUTES, PASSWORD_RESET_TOKEN_CLEANUP_HOURS,
                      IP_LOCATION_CACHE_TTL, IP_LOCATION_QUERY_TIMEOUT,
                      INVITE_RECORDS_QUERY_LIMIT)
+from time_utils import now_str, to_local_str
 
 logger = logging.getLogger(__name__)
 
@@ -108,14 +109,14 @@ def init_db():
         username TEXT UNIQUE NOT NULL,
         password_hash TEXT NOT NULL,
         free_uses INTEGER DEFAULT 3,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        created_at TIMESTAMP DEFAULT (datetime('now','localtime'))
     )''')
     db.execute('''CREATE TABLE IF NOT EXISTS usage_log (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         user_id INTEGER,
         action TEXT NOT NULL,
         session_id TEXT,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        created_at TIMESTAMP DEFAULT (datetime('now','localtime'))
     )''')
     db.execute('''CREATE TABLE IF NOT EXISTS records (
         id TEXT PRIMARY KEY,
@@ -128,7 +129,7 @@ def init_db():
         category TEXT,
         background TEXT,
         gua_xiang_info TEXT,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        created_at TIMESTAMP DEFAULT (datetime('now','localtime')),
         FOREIGN KEY (user_id) REFERENCES users(id)
     )''')
     # 数据库迁移：添加 role 字段
@@ -195,7 +196,7 @@ def init_db():
     db.execute('''CREATE TABLE IF NOT EXISTS password_reset_tokens (
         token TEXT PRIMARY KEY,
         user_id INTEGER NOT NULL,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        created_at TIMESTAMP DEFAULT (datetime('now','localtime')),
         used INTEGER DEFAULT 0,
         FOREIGN KEY (user_id) REFERENCES users(id)
     )''')
@@ -204,7 +205,7 @@ def init_db():
     db.execute('''CREATE TABLE IF NOT EXISTS system_config (
         key TEXT PRIMARY KEY,
         value TEXT,
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        updated_at TIMESTAMP DEFAULT (datetime('now','localtime'))
     )''')
 
     # 新建 feedback 表
@@ -214,7 +215,7 @@ def init_db():
         feedback TEXT NOT NULL,
         contact TEXT,
         status TEXT DEFAULT 'unread',
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        created_at TIMESTAMP DEFAULT (datetime('now','localtime'))
     )''')
 
     # 数据库迁移：添加邀请相关字段
@@ -247,7 +248,7 @@ def init_db():
         visitor_ip TEXT,
         invitee_id INTEGER,
         reward INTEGER DEFAULT 0,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        created_at TIMESTAMP DEFAULT (datetime('now','localtime')),
         FOREIGN KEY (inviter_id) REFERENCES users(id)
     )''')
 
@@ -259,8 +260,8 @@ def init_db():
         gua_xiang_info TEXT,
         category TEXT,
         background TEXT,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        created_at TIMESTAMP DEFAULT (datetime('now','localtime')),
+        updated_at TIMESTAMP DEFAULT (datetime('now','localtime'))
     )''')
 
     # 创建索引（高频查询字段）
@@ -300,8 +301,9 @@ def register_user(username, password, email=None, agreed_version=None, agreed_at
         new_invite_code = generate_invite_code(db)
 
         db.execute(
-            'INSERT INTO users (username, password_hash, free_uses, email, agreed_version, agreed_at, agreed_ip, invite_code, invited_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
-            (username, generate_password_hash(password), free_uses, email.strip() if email else '', agreed_version, agreed_at, agreed_ip, new_invite_code, inviter['id'] if inviter else None)
+            'INSERT INTO users (username, password_hash, free_uses, email, agreed_version, agreed_at, agreed_ip, invite_code, invited_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+            (username, generate_password_hash(password), free_uses, email.strip() if email else '', agreed_version,
+             to_local_str(agreed_at) or agreed_at, agreed_ip, new_invite_code, inviter['id'] if inviter else None, now_str())
         )
         db.commit()
         user = db.execute('SELECT * FROM users WHERE username = ?', (username,)).fetchone()
@@ -349,8 +351,8 @@ def login_user(username, password, ip=None):
     # 记录最后登录 IP 和时间
     if ip:
         db.execute(
-            'UPDATE users SET last_login_ip = ?, last_login_at = CURRENT_TIMESTAMP WHERE id = ?',
-            (ip, user['id'])
+            'UPDATE users SET last_login_ip = ?, last_login_at = ? WHERE id = ?',
+            (ip, now_str(), user['id'])
         )
         db.commit()
 
@@ -398,8 +400,8 @@ def log_usage(action, session_id=None, user_id=None, ip=None):
     """仅记录使用日志，不扣减额度（用于游客等场景）"""
     db = get_db()
     db.execute(
-        'INSERT INTO usage_log (user_id, action, session_id, ip) VALUES (?, ?, ?, ?)',
-        (user_id, action, session_id, ip)
+        'INSERT INTO usage_log (user_id, action, session_id, ip, created_at) VALUES (?, ?, ?, ?, ?)',
+        (user_id, action, session_id, ip, now_str())
     )
     db.commit()
     release_db(db)
@@ -416,8 +418,8 @@ def use_credit(user_id, action, session_id=None, ip=None):
         release_db(db)
         return False, 0
     db.execute(
-        'INSERT INTO usage_log (user_id, action, session_id, ip) VALUES (?, ?, ?, ?)',
-        (user_id, action, session_id, ip)
+        'INSERT INTO usage_log (user_id, action, session_id, ip, created_at) VALUES (?, ?, ?, ?, ?)',
+        (user_id, action, session_id, ip, now_str())
     )
     db.commit()
     remaining = db.execute('SELECT free_uses FROM users WHERE id = ?', (user_id,)).fetchone()['free_uses']
@@ -513,7 +515,12 @@ def _extract_token():
 
 def get_user_records(user_id):
     db = get_db()
-    rows = db.execute('SELECT * FROM records WHERE user_id = ? ORDER BY created_at DESC', (user_id,)).fetchall()
+    # 按起卦时间排序（而非入库时间）——本地记录迁移上来时入库时间会被刷成"现在"，
+    # 用 created_at 排序会让旧卦跑到新卦前面
+    rows = db.execute(
+        'SELECT * FROM records WHERE user_id = ? ORDER BY date DESC, created_at DESC',
+        (user_id,)
+    ).fetchall()
     release_db(db)
     records = []
     for row in rows:
@@ -534,8 +541,8 @@ def create_user_record(user_id, record_data):
     db = get_db()
     record_id = _generate_record_id()
     db.execute(
-        '''INSERT INTO records (id, user_id, title, date, yao_values, session_id, messages, category, background, gua_xiang_info)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''',
+        '''INSERT INTO records (id, user_id, title, date, yao_values, session_id, messages, category, background, gua_xiang_info, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''',
         (
             record_id,
             user_id,
@@ -547,6 +554,8 @@ def create_user_record(user_id, record_data):
             json.dumps(record_data.get('category'), ensure_ascii=False) if record_data.get('category') is not None else None,
             record_data.get('background', ''),
             json.dumps(record_data.get('guaXiangInfo'), ensure_ascii=False) if record_data.get('guaXiangInfo') is not None else None,
+            # 沿用客户端的创建时间（本地记录迁移场景），缺省或格式异常时用当前时间
+            to_local_str(record_data.get('createdAt')) or now_str(),
         )
     )
     db.commit()
@@ -696,7 +705,7 @@ def create_reset_token(email):
         return None, None
     db = get_db()
     # 清理过期和已使用的 token，防止表无限增长
-    db.execute(f"DELETE FROM password_reset_tokens WHERE used = 1 OR created_at < datetime('now', '-{PASSWORD_RESET_TOKEN_CLEANUP_HOURS} hour')")
+    db.execute(f"DELETE FROM password_reset_tokens WHERE used = 1 OR created_at < datetime('now', 'localtime', '-{PASSWORD_RESET_TOKEN_CLEANUP_HOURS} hour')")
     user = db.execute('SELECT id, username, email FROM users WHERE email = ?', (email.strip(),)).fetchone()
     if not user:
         db.commit()
@@ -704,8 +713,8 @@ def create_reset_token(email):
         return None, None
     token = secrets.token_hex(32)
     db.execute(
-        'INSERT INTO password_reset_tokens (token, user_id) VALUES (?, ?)',
-        (token, user['id'])
+        'INSERT INTO password_reset_tokens (token, user_id, created_at) VALUES (?, ?, ?)',
+        (token, user['id'], now_str())
     )
     db.commit()
     release_db(db)
@@ -797,7 +806,7 @@ def _get_config_int(db, key, default):
 def _get_monthly_invite_count(db, inviter_id):
     """获取邀请人当月邀请记录数"""
     return db.execute(
-        "SELECT COUNT(*) as cnt FROM invite_records WHERE inviter_id = ? AND created_at >= date('now', 'start of month')",
+        "SELECT COUNT(*) as cnt FROM invite_records WHERE inviter_id = ? AND created_at >= date('now', 'localtime', 'start of month')",
         (inviter_id,)
     ).fetchone()['cnt']
 
@@ -818,8 +827,8 @@ def _process_invite_register_reward(db, inviter_id, invitee_id):
     db.execute('UPDATE users SET free_uses = free_uses + ? WHERE id = ?', (invitee_bonus, invitee_id))
     # 写记录
     db.execute(
-        'INSERT INTO invite_records (inviter_id, type, invitee_id, reward) VALUES (?, ?, ?, ?)',
-        (inviter_id, 'register', invitee_id, inviter_reward)
+        'INSERT INTO invite_records (inviter_id, type, invitee_id, reward, created_at) VALUES (?, ?, ?, ?, ?)',
+        (inviter_id, 'register', invitee_id, inviter_reward, now_str())
     )
     db.commit()
 
@@ -839,7 +848,7 @@ def process_invite_visit(invite_code, visitor_ip):
         # 检查 IP 24h 限流
         ip_daily_limit = _get_config_int(db, 'INVITE_IP_DAILY_LIMIT', INVITE_IP_DAILY_LIMIT)
         ip_count = db.execute(
-            "SELECT COUNT(*) as cnt FROM invite_records WHERE type = 'visit' AND visitor_ip = ? AND created_at >= datetime('now', '-24 hours')",
+            "SELECT COUNT(*) as cnt FROM invite_records WHERE type = 'visit' AND visitor_ip = ? AND created_at >= datetime('now', 'localtime', '-24 hours')",
             (visitor_ip,)
         ).fetchone()['cnt']
         if ip_count >= ip_daily_limit:
@@ -857,8 +866,8 @@ def process_invite_visit(invite_code, visitor_ip):
         db.execute('UPDATE users SET free_uses = free_uses + ? WHERE id = ?', (visit_reward, inviter['id']))
         # 写记录
         db.execute(
-            'INSERT INTO invite_records (inviter_id, type, visitor_ip, reward) VALUES (?, ?, ?, ?)',
-            (inviter['id'], 'visit', visitor_ip, visit_reward)
+            'INSERT INTO invite_records (inviter_id, type, visitor_ip, reward, created_at) VALUES (?, ?, ?, ?, ?)',
+            (inviter['id'], 'visit', visitor_ip, visit_reward, now_str())
         )
         db.commit()
         return True, None
@@ -877,7 +886,7 @@ def get_invite_stats(user_id):
         # 本月统计
         monthly_count = _get_monthly_invite_count(db, user_id)
         monthly_reward = db.execute(
-            "SELECT COALESCE(SUM(reward), 0) as total FROM invite_records WHERE inviter_id = ? AND created_at >= date('now', 'start of month')",
+            "SELECT COALESCE(SUM(reward), 0) as total FROM invite_records WHERE inviter_id = ? AND created_at >= date('now', 'localtime', 'start of month')",
             (user_id,)
         ).fetchone()['total']
 
@@ -950,9 +959,9 @@ def save_conversation(session_id, user_id, messages_json, gua_xiang_info=None, c
             '''INSERT OR REPLACE INTO conversations
                (session_id, user_id, messages, gua_xiang_info, category, background, created_at, updated_at)
                VALUES (?, ?, ?, ?, ?, ?,
-                   COALESCE((SELECT created_at FROM conversations WHERE session_id = ?), CURRENT_TIMESTAMP),
-                   CURRENT_TIMESTAMP)''',
-            (session_id, user_id, messages_json, gua_xiang_info, category, background, session_id)
+                   COALESCE((SELECT created_at FROM conversations WHERE session_id = ?), ?),
+                   ?)''',
+            (session_id, user_id, messages_json, gua_xiang_info, category, background, session_id, now_str(), now_str())
         )
         db.commit()
     except Exception as e:

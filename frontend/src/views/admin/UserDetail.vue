@@ -22,6 +22,15 @@
         <span class="info-value">{{ user.created_at }}</span>
       </div>
       <div class="info-row">
+        <span class="info-label">{{ $t('邀请人') }}</span>
+        <span
+          v-if="user.inviter"
+          class="info-value inviter-link"
+          @click="goInviter(user.inviter.id)"
+        >{{ user.inviter.username }}</span>
+        <span v-else class="info-value">-</span>
+      </div>
+      <div class="info-row">
         <span class="info-label">{{ $t('最后登录时间') }}</span>
         <span class="info-value">{{ user.last_login_at || '-' }}</span>
       </div>
@@ -71,12 +80,13 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
-import { useRoute } from 'vue-router'
+import { ref, onMounted, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { getAdminUserDetail, updateUserQuota, banUser, unbanUser, adminResetPassword } from '../../api/index.js'
 import { showToast } from '../../utils/toast.js'
 
 const route = useRoute()
+const router = useRouter()
 const user = ref(null)
 const newQuota = ref(0)
 const newPassword = ref('')
@@ -137,6 +147,16 @@ async function handleBanToggle() {
   }
 }
 
+function goInviter(inviterId) {
+  router.push(`/admin/users/${inviterId}`)
+}
+
+// 跳转到邀请人详情时复用同一路由组件，不会重新 mount，需监听参数变化重新加载
+watch(() => route.params.id, () => {
+  newPassword.value = ''
+  loadUser()
+})
+
 onMounted(loadUser)
 </script>
 
@@ -165,6 +185,11 @@ onMounted(loadUser)
 .info-value {
   color: var(--color-text);
   font-size: 15px;
+}
+.inviter-link {
+  color: var(--color-primary);
+  text-decoration: underline;
+  cursor: pointer;
 }
 .role-tag {
   font-size: 13px;

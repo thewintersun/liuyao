@@ -10,6 +10,18 @@ function generateId() {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 8)
 }
 
+/**
+ * 本地时区的 ISO 格式（不带 Z / 时区偏移），如 2026-08-21T21:00:00
+ * 不能用 toISOString()——那会转成 UTC，起卦时间会整体偏移时区差。
+ * 无偏移的 ISO 字符串按 ES2015 规范由 new Date() 当作本地时间解析，往返一致，
+ * 且字符串排序等价于时间排序。
+ */
+function toLocalISO(date) {
+  const p = n => String(n).padStart(2, '0')
+  return `${date.getFullYear()}-${p(date.getMonth() + 1)}-${p(date.getDate())}`
+    + `T${p(date.getHours())}:${p(date.getMinutes())}:${p(date.getSeconds())}`
+}
+
 // ========== localStorage 操作 ==========
 
 function getLocalRecords() {
@@ -63,9 +75,9 @@ export async function saveRecord(title, date, yaoValues) {
   const record = {
     id: generateId(),
     title: title,
-    date: date.toISOString(),
+    date: toLocalISO(date),
     yaoValues: yaoValues,
-    createdAt: new Date().toISOString()
+    createdAt: toLocalISO(new Date())
   }
 
   if (isLoggedIn()) {
