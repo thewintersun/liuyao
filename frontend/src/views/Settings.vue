@@ -27,6 +27,10 @@
         <span class="menu-title">{{ $t('邀请好友得额度') }}</span>
         <span class="menu-arrow">&#8250;</span>
       </div>
+      <div class="menu-item touchable" v-if="donateEnabled" @click="showDonate = true">
+        <span class="menu-title">{{ $t('请我喝杯咖啡') }}</span>
+        <span class="menu-arrow">&#8250;</span>
+      </div>
       <div class="menu-item touchable" @click="showLangPicker = true">
         <span class="menu-title">{{ $t('语言') }} / Language</span>
         <span class="menu-extra">{{ currentLangLabel }}</span>
@@ -54,6 +58,9 @@
         <p class="lang-cancel" @click="showLangPicker = false">{{ $t('取消') }}</p>
       </div>
     </div>
+
+    <!-- 捐助弹窗 -->
+    <DonateDialog :visible="showDonate" @close="showDonate = false" />
   </div>
 </template>
 
@@ -61,12 +68,16 @@
 import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { t, getLang, setLang } from '../utils/locale.js'
+import DonateDialog from '../components/DonateDialog.vue'
+import { isDonateEnabled } from '../config/donate.js'
 
 const router = useRouter()
 const isLoggedIn = ref(false)
 const username = ref('')
 const isAdmin = ref(false)
 const showLangPicker = ref(false)
+const showDonate = ref(false)
+const donateEnabled = isDonateEnabled()
 
 const currentLangSetting = ref(localStorage.getItem('liuyao_lang') || 'auto')
 
