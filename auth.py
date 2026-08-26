@@ -286,6 +286,7 @@ def init_db():
     db.execute('CREATE INDEX IF NOT EXISTS idx_usage_log_user_id ON usage_log(user_id)')
     db.execute('CREATE INDEX IF NOT EXISTS idx_usage_log_session_id ON usage_log(session_id)')
     db.execute('CREATE INDEX IF NOT EXISTS idx_conversations_user_id ON conversations(user_id)')
+    db.execute('CREATE INDEX IF NOT EXISTS idx_records_session_id ON records(session_id)')
     db.execute('CREATE INDEX IF NOT EXISTS idx_invite_records_inviter_id ON invite_records(inviter_id)')
 
     db.commit()

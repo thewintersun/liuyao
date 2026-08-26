@@ -390,7 +390,15 @@ def get_usage_logs(page=1, per_page=20, username=None, date_from=None, date_to=N
             MIN(l.created_at) as created_at,
             COUNT(*) as use_count,
             MAX(l.created_at) as last_active_at,
-            GROUP_CONCAT(l.action, ',') as actions
+            GROUP_CONCAT(l.action, ',') as actions,
+            -- 所求之事：优先用户保存记录时的标题，其次对话归档里的原始提问。
+            -- records.session_id 存在重复，必须用标量子查询而非 JOIN，否则行数膨胀
+            COALESCE(
+                (SELECT r.title FROM records r
+                 WHERE r.session_id = l.session_id AND r.title != '' LIMIT 1),
+                (SELECT substr(c.background, 1, 60) FROM conversations c
+                 WHERE c.session_id = l.session_id AND c.background != '' LIMIT 1)
+            ) as title
         FROM usage_log l
         LEFT JOIN users u ON l.user_id = u.id
         {where_clause}

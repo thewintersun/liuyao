@@ -46,6 +46,9 @@
           <span class="log-time-main">{{ log.created_at }}</span>
           <span class="log-action">{{ formatAction(log) }}</span>
         </div>
+        <div class="log-title" :class="{ empty: !log.title }">
+          {{ log.title || $t('未记录所求之事') }}
+        </div>
         <div class="log-meta">
           <span v-if="log.session_id" class="log-session">{{ log.session_id }}</span>
           <span class="log-ip">{{ log.ip || '-' }}</span>
@@ -252,6 +255,18 @@ onMounted(loadLogs)
   background: rgba(249,212,124,0.15);
   color: var(--color-primary);
   border-radius: 2px;
+}
+.log-title {
+  font-size: 13px;
+  color: var(--color-text);
+  margin-bottom: 6px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.log-title.empty {
+  color: var(--color-text-secondary);
+  font-style: italic;
 }
 .log-meta {
   display: flex;
