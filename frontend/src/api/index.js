@@ -259,6 +259,12 @@ export async function getAdminLogs(page = 1, perPage = 20, filters = {}) {
   return response.data
 }
 
+export async function getAdminUserLogs(userId, page = 1, perPage = 20, filters = {}) {
+  const params = { page, per_page: perPage, ...filters }
+  const response = await api.get(`/api/admin/users/${userId}/logs`, { params })
+  return response.data
+}
+
 export async function getSessionDetail(sessionId) {
   const response = await api.get(`/api/admin/logs/session/${sessionId}`)
   return response.data

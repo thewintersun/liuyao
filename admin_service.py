@@ -321,27 +321,50 @@ def update_feedback_status(feedback_id, status):
 
 # ========== 日志查看 ==========
 
-def get_usage_logs(page=1, per_page=20, username=None, date_from=None, date_to=None):
-    """按 session_id 分组查询使用日志，每个会话只显示一行"""
+def get_usage_logs(page=1, per_page=20, username=None, date_from=None, date_to=None,
+                   user_id=None, session_view=False):
+    """按 session_id 分组查询使用日志，每个会话只显示一行
+
+    user_id 为精确匹配（用于查看某个用户的全部解卦记录），
+    username 为模糊匹配（用于日志页的搜索框）。
+
+    session_view=False（使用日志页的既有行为）：日期条件过滤单条日志，
+    按最后活动倒序——关心的是"这天发生了哪些操作"。
+    session_view=True（解卦记录页）：日期条件过滤起卦时间，按起卦时间倒序——
+    关心的是"这天起了哪些卦"，跨天追问的会话不会被截断成半条记录。
+    """
     db = get_db()
     offset = (page - 1) * per_page
 
     conditions = []
     params = []
+    having_conditions = []
+    having_params = []
 
+    if user_id is not None:
+        conditions.append('l.user_id = ?')
+        params.append(user_id)
     if username:
         conditions.append('u.username LIKE ? ESCAPE "\\"')
         params.append(f'%{_escape_like(username)}%')
+
+    # session_view 下日期作用于分组后的起卦时间，否则作用于每条日志
+    date_target = having_conditions if session_view else conditions
+    date_params = having_params if session_view else params
+    date_expr = 'date(MIN(l.created_at))' if session_view else 'date(l.created_at)'
     if date_from:
-        conditions.append("date(l.created_at) >= ?")
-        params.append(date_from)
+        date_target.append(f"{date_expr} >= ?")
+        date_params.append(date_from)
     if date_to:
-        conditions.append("date(l.created_at) <= ?")
-        params.append(date_to)
+        date_target.append(f"{date_expr} <= ?")
+        date_params.append(date_to)
 
     where_clause = ''
     if conditions:
         where_clause = 'WHERE ' + ' AND '.join(conditions)
+    having_clause = ''
+    if having_conditions:
+        having_clause = 'HAVING ' + ' AND '.join(having_conditions)
 
     # 按 session_id 分组（NULL session_id 每条单独一行）
     total = db.execute(
@@ -350,10 +373,13 @@ def get_usage_logs(page=1, per_page=20, username=None, date_from=None, date_to=N
             FROM usage_log l LEFT JOIN users u ON l.user_id = u.id
             {where_clause}
             GROUP BY grp
+            {having_clause}
         )''',
-        params
+        params + having_params
     ).fetchone()['cnt']
 
+    # 起卦时间倒序 vs 最后活动倒序
+    order_expr = 'MIN(l.id)' if session_view else 'MAX(l.id)'
     rows = db.execute(
         f'''SELECT
             MIN(l.id) as id,
@@ -363,14 +389,16 @@ def get_usage_logs(page=1, per_page=20, username=None, date_from=None, date_to=N
             u.username,
             MIN(l.created_at) as created_at,
             COUNT(*) as use_count,
+            MAX(l.created_at) as last_active_at,
             GROUP_CONCAT(l.action, ',') as actions
         FROM usage_log l
         LEFT JOIN users u ON l.user_id = u.id
         {where_clause}
         GROUP BY COALESCE(l.session_id, 'null_' || l.id)
-        ORDER BY MAX(l.id) DESC
+        {having_clause}
+        ORDER BY {order_expr} DESC
         LIMIT ? OFFSET ?''',
-        params + [per_page, offset]
+        params + having_params + [per_page, offset]
     ).fetchall()
 
     release_db(db)

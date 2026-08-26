@@ -40,6 +40,7 @@ const titleMap = {
 }
 
 const title = computed(() => {
+  if (/^\/admin\/users\/[^/]+\/logs$/.test(route.path)) return '解卦记录'
   if (route.path.startsWith('/admin/users/')) return '用户详情'
   if (route.path.startsWith('/admin/logs/session/')) return '会话详情'
   return titleMap[route.path] || ''

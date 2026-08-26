@@ -22,6 +22,7 @@ const routes = [
   { path: '/admin', name: 'AdminDashboard', component: () => import('../views/admin/Dashboard.vue'), meta: { tab: 'settings', requireAdmin: true } },
   { path: '/admin/users', name: 'AdminUsers', component: () => import('../views/admin/Users.vue'), meta: { tab: 'settings', requireAdmin: true } },
   { path: '/admin/users/:id', name: 'AdminUserDetail', component: () => import('../views/admin/UserDetail.vue'), meta: { tab: 'settings', requireAdmin: true } },
+  { path: '/admin/users/:id/logs', name: 'AdminUserLogs', component: () => import('../views/admin/UserLogs.vue'), meta: { tab: 'settings', requireAdmin: true } },
   { path: '/admin/config', name: 'AdminConfig', component: () => import('../views/admin/SystemConfig.vue'), meta: { tab: 'settings', requireAdmin: true } },
   { path: '/admin/prompts', name: 'AdminPrompts', component: () => import('../views/admin/Prompts.vue'), meta: { tab: 'settings', requireAdmin: true } },
   { path: '/admin/feedback', name: 'AdminFeedback', component: () => import('../views/admin/Feedback.vue'), meta: { tab: 'settings', requireAdmin: true } },

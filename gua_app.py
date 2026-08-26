@@ -874,6 +874,25 @@ def admin_get_logs():
     return jsonify({"status": "success", **result})
 
 
+@app.route('/api/admin/users/<int:user_id>/logs', methods=['GET'])
+@require_auth
+@require_admin
+def admin_get_user_logs(user_id):
+    """某个用户的全部解卦记录（按会话分组，一次解卦含追问算一行）"""
+    page = request.args.get('page', 1, type=int)
+    per_page = min(request.args.get('per_page', ADMIN_DEFAULT_PER_PAGE, type=int), ADMIN_MAX_PER_PAGE)
+    date_from = request.args.get('date_from', None)
+    date_to = request.args.get('date_to', None)
+    user = admin_service.get_user_detail(user_id)
+    if not user:
+        return jsonify({"error": "用户不存在"}), 404
+    result = admin_service.get_usage_logs(
+        page, per_page, None, date_from, date_to,
+        user_id=user_id, session_view=True
+    )
+    return jsonify({"status": "success", "username": user['username'], **result})
+
+
 @app.route('/api/admin/logs/session/<session_id>', methods=['GET'])
 @require_auth
 @require_admin

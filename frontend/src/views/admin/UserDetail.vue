@@ -60,6 +60,11 @@
       </div>
     </div>
 
+    <div class="menu-card" v-if="user" @click="goUserLogs">
+      <span class="menu-label">{{ $t('解卦记录') }}</span>
+      <span class="menu-arrow">›</span>
+    </div>
+
     <div class="action-section" v-if="user">
       <div class="quota-adjust">
         <span class="action-label">{{ $t('调整额度') }}</span>
@@ -159,6 +164,10 @@ function goInviter(inviterId) {
   router.push(`/admin/users/${inviterId}`)
 }
 
+function goUserLogs() {
+  router.push(`/admin/users/${route.params.id}/logs`)
+}
+
 // 跳转到邀请人详情时复用同一路由组件，不会重新 mount，需监听参数变化重新加载
 watch(() => route.params.id, () => {
   newPassword.value = ''
@@ -169,6 +178,30 @@ onMounted(loadUser)
 </script>
 
 <style scoped>
+.menu-card {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: var(--color-card);
+  border: 1px solid var(--color-border);
+  border-radius: 1px;
+  padding: 12px 14px;
+  margin-top: 10px;
+  cursor: pointer;
+}
+.menu-card:active {
+  background: rgba(249,212,124,0.08);
+}
+.menu-label {
+  font-size: 14px;
+  color: var(--color-text);
+}
+.menu-arrow {
+  font-size: 18px;
+  color: var(--color-text-secondary);
+  line-height: 1;
+}
+
 .user-card {
   background: var(--color-card);
   border: 1px solid var(--color-border);
