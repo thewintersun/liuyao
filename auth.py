@@ -264,6 +264,22 @@ def init_db():
         updated_at TIMESTAMP DEFAULT (datetime('now','localtime'))
     )''')
 
+    # 用神自动判定的影子记录：只观察不生效，用于评估能否撤掉分类选择页
+    db.execute('''CREATE TABLE IF NOT EXISTS yongshen_shadow (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        session_id TEXT,
+        user_id INTEGER,
+        question TEXT,
+        user_choice TEXT,
+        llm_choice TEXT,
+        llm_reason TEXT,
+        agreed INTEGER,
+        elapsed_ms INTEGER,
+        provider TEXT,
+        error TEXT,
+        created_at TIMESTAMP DEFAULT (datetime('now','localtime'))
+    )''')
+
     # 创建索引（高频查询字段）
     db.execute('CREATE INDEX IF NOT EXISTS idx_users_email ON users(email)')
     db.execute('CREATE INDEX IF NOT EXISTS idx_users_invite_code ON users(invite_code)')
@@ -949,6 +965,28 @@ def get_session_owner(session_id):
         return False, None
     finally:
         release_db(db)
+
+
+def record_yongshen_shadow(session_id, user_id, question, user_choice, llm_choice,
+                           llm_reason, agreed, elapsed_ms, provider, error):
+    """记录一次用神影子判定。纯观察数据，写失败不应影响任何业务流程。"""
+    db = None
+    try:
+        db = get_db()
+        db.execute(
+            '''INSERT INTO yongshen_shadow
+               (session_id, user_id, question, user_choice, llm_choice, llm_reason,
+                agreed, elapsed_ms, provider, error, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''',
+            (session_id, user_id, question, user_choice, llm_choice, llm_reason,
+             agreed, elapsed_ms, provider, error, now_str())
+        )
+        db.commit()
+    except Exception as e:
+        logger.warning(f'记录用神影子判定失败: {e}')
+    finally:
+        if db is not None:
+            release_db(db)
 
 
 def save_conversation(session_id, user_id, messages_json, gua_xiang_info=None, category=None, background=None):

@@ -66,6 +66,12 @@ LLM_MAX_TOKENS = 32768
 LLM_RETRY_ON_FAILURE = True              # LLM 调用失败（含空回复）时自动重试一次
 CHAT_RESTORE_MAX_MESSAGES = 100          # 恢复对话最大消息数
 
+# ========== 用神影子判定 ==========
+# 只观察不生效：解卦后额外判定一次用神并记录，用于评估能否撤掉分类选择页。
+# 它会让 LLM 请求数翻倍，若供应商触发速率限制，可调低采样率或直接关掉。
+YONGSHEN_SHADOW_ENABLED = os.environ.get('YONGSHEN_SHADOW_ENABLED', 'true').lower() not in ('false', '0', 'no')
+YONGSHEN_SHADOW_SAMPLE_RATE = float(os.environ.get('YONGSHEN_SHADOW_SAMPLE_RATE', '1.0'))
+
 # ========== 异步任务 ==========
 # 必须大于前端 pollTaskResult 的 maxWait（600s），否则前端还在轮询时任务已被清理
 ASYNC_TASK_TIMEOUT_SECONDS = 900  # 15 分钟

@@ -11,6 +11,7 @@ import json
 from datetime import datetime
 import uuid
 from liuyao_utils import orgnize_data
+import yongshen_detect
 from dialog_manager import DialogManager
 from captcha_utils import generate_captcha, validate_captcha
 
@@ -345,6 +346,14 @@ def receive_data():
                 background=data.get('background', '')
             )
 
+        # 影子模式：后台判定用神并记录，不参与本次解卦，也不阻塞响应
+        yongshen_detect.observe(
+            session_id=session_id,
+            user_id=g.user_id,
+            question=data.get('background', ''),
+            user_choice=(data.get('category') or {}).get('title'),
+        )
+
     result = {
         "status": "success",
         "message": cut_response,
@@ -412,6 +421,14 @@ def receive_data_async():
                         category=json.dumps(data.get('category'), ensure_ascii=False) if data.get('category') else None,
                         background=data.get('background', '')
                     )
+
+                # 影子模式：后台判定用神并记录，不参与本次解卦
+                yongshen_detect.observe(
+                    session_id=session_id,
+                    user_id=user_id,
+                    question=data.get('background', ''),
+                    user_choice=(data.get('category') or {}).get('title'),
+                )
 
             result = {
                 "status": "success",
