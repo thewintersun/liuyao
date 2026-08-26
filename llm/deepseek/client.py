@@ -43,6 +43,32 @@ class DeepseekClient(BaseLLM):
         openai.api_base = self.api_base
 
 
+    @staticmethod
+    def _extract_content(response) -> str:
+        """从非流式响应中提取正文，空回复视为失败抛出
+
+        deepseek-v4-flash 是推理模型，reasoning_tokens 计入 max_tokens 预算，
+        推理过长时会耗尽预算，此时接口返回 200 但 content 为空
+        （finish_reason='length'），必须当作失败，否则用户拿到空白结果。
+        """
+        try:
+            choice = response["choices"][0]
+            content = choice["message"]["content"]
+        except (KeyError, IndexError) as e:
+            logger.error(f"解析DeepSeek响应失败: {str(e)}")
+            raise ValueError(f"无法从DeepSeek响应中提取助手回复: {str(e)}")
+
+        finish_reason = choice.get("finish_reason")
+        if not (content or "").strip():
+            usage = response.get("usage") if hasattr(response, "get") else None
+            logger.error(f"DeepSeek 返回空回复: finish_reason={finish_reason}, usage={usage}")
+            raise ValueError(f"DeepSeek 返回空回复 (finish_reason={finish_reason})")
+        if finish_reason == "length":
+            logger.warning(f"DeepSeek 回复被截断: 长度={len(content)}，建议调高 max_tokens")
+
+        return content
+
+
     async def chat_completion(self,
                        messages: List[Dict[str, str]],
                        temperature: float = DEFAULT_TEMPERATURE,
@@ -290,17 +316,13 @@ class DeepseekClient(BaseLLM):
                 **kwargs
             )
 
-            # 提取助手回复
-            try:
-                assistant_message = response["choices"][0]["message"]["content"]
+            # 提取助手回复（空回复会抛异常，由上层重试）
+            assistant_message = self._extract_content(response)
 
-                # 将助手回复添加到对话历史
-                conversation.add_assistant_message(assistant_message)
+            # 将助手回复添加到对话历史
+            conversation.add_assistant_message(assistant_message)
 
-                return assistant_message
-            except (KeyError, IndexError) as e:
-                logger.error(f"解析DeepSeek响应失败: {str(e)}")
-                raise ValueError(f"无法从DeepSeek响应中提取助手回复: {str(e)}")
+            return assistant_message
         else:
             # 流式模式
             async def chat_generator() -> AsyncGenerator[str, None]:
@@ -370,17 +392,13 @@ class DeepseekClient(BaseLLM):
                 **kwargs
             )
 
-            # 提取助手回复
-            try:
-                assistant_message = response["choices"][0]["message"]["content"]
+            # 提取助手回复（空回复会抛异常，由上层重试）
+            assistant_message = self._extract_content(response)
 
-                # 将助手回复添加到对话历史
-                conversation.add_assistant_message(assistant_message)
+            # 将助手回复添加到对话历史
+            conversation.add_assistant_message(assistant_message)
 
-                return assistant_message
-            except (KeyError, IndexError) as e:
-                logger.error(f"解析DeepSeek响应失败: {str(e)}")
-                raise ValueError(f"无法从DeepSeek响应中提取助手回复: {str(e)}")
+            return assistant_message
         else:
             # 流式模式
             def chat_generator() -> Generator[str, None, None]:

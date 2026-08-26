@@ -56,7 +56,10 @@ CONVERSATION_TIMEOUT_SECONDS = 86400     # 对话超时（24 小时）
 ACTIVE_USER_WINDOW_SECONDS = 600         # 活跃用户判断窗口（10 分钟）
 MAX_RECENT_ROUNDS = 9                    # 首轮之外最多保留轮数
 LLM_TEMPERATURE = 0.7
-LLM_MAX_TOKENS = 4096
+# deepseek-v4-flash 是推理模型，reasoning_tokens 计入本预算。
+# 4096 时复杂卦例的推理会耗尽预算导致正文为空，故放宽（模型上限 65536）。
+LLM_MAX_TOKENS = 16384
+LLM_RETRY_ON_FAILURE = True              # LLM 调用失败（含空回复）时自动重试一次
 CHAT_RESTORE_MAX_MESSAGES = 100          # 恢复对话最大消息数
 
 # ========== 异步任务 ==========

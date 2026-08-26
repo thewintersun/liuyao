@@ -152,6 +152,37 @@ class DialogManager:
         self.set_conversation(new_id, conversation)
         return new_id
 
+    @staticmethod
+    def _rollback_last_round(conversation: Conversation) -> None:
+        """移除本轮追加的 assistant/user 消息，避免失败的一轮污染历史"""
+        messages = conversation.messages
+        if messages and messages[-1].role == 'assistant':
+            messages.pop()
+        if messages and messages[-1].role == 'user':
+            messages.pop()
+
+    def _invoke_llm(self, conversation: Conversation, message: str, max_tokens: int) -> str:
+        """调用 LLM 并保证返回非空正文，失败时回滚本轮消息后抛出"""
+        try:
+            response = self.llm_client.chat_sync(
+                conversation=conversation,
+                user_message=message,
+                temperature=_cfg.LLM_TEMPERATURE,
+                max_tokens=max_tokens,
+                stream=False
+            )
+        except Exception:
+            # chat_sync 内部已添加 user message，失败时需移除
+            self._rollback_last_round(conversation)
+            raise
+
+        # 兜底：接口未报错但正文为空（如推理耗尽 max_tokens），同样按失败处理，避免白扣额度
+        if not (response or '').strip():
+            self._rollback_last_round(conversation)
+            raise ValueError('LLM 返回空回复')
+
+        return response
+
     def process_user_message(self, conversation_id: str, message: str, lang: str = None):
         """返回 (response_text, success_bool)"""
         conversation = self.get_conversation(conversation_id, lang=lang)
@@ -161,43 +192,31 @@ class DialogManager:
         logger.info(f'历史对话数量: {len(conversation.messages)}, 估算tokens: {total_tokens}')
 
         try:
-            response = self.llm_client.chat_sync(
-                conversation=conversation,
-                user_message=message,
-                temperature=_cfg.LLM_TEMPERATURE,
-                max_tokens=_cfg.LLM_MAX_TOKENS,
-                stream=False
-            )
+            response = self._invoke_llm(conversation, message, _cfg.LLM_MAX_TOKENS)
             self.set_conversation(conversation_id, conversation)
             return response, True
         except Exception as e:
             error_msg = str(e).lower()
-            # chat_sync 内部已添加 user message，失败时需移除
-            if conversation.messages and conversation.messages[-1].role == 'user':
-                conversation.messages.pop()
-
             is_context_error = any(kw in error_msg for kw in
                                    ['context_length', 'too long', 'maximum', 'token', 'content_length'])
+
             if is_context_error:
                 logger.warning(f'上下文过长，激进裁剪后重试: {e}')
                 self._aggressive_trim(conversation)
-                try:
-                    response = self.llm_client.chat_sync(
-                        conversation=conversation,
-                        user_message=message,
-                        temperature=0.7,
-                        max_tokens=4096,
-                        stream=False
-                    )
-                    self.set_conversation(conversation_id, conversation)
-                    return response, True
-                except Exception as retry_e:
-                    logger.error(f'重试仍然失败: {retry_e}')
-                    if conversation.messages and conversation.messages[-1].role == 'user':
-                        conversation.messages.pop()
-                    self.set_conversation(conversation_id, conversation)
-                    return '抱歉，对话上下文过长导致处理失败，请尝试开始新的对话。', False
+            elif _cfg.LLM_RETRY_ON_FAILURE:
+                logger.warning(f'LLM 调用失败，重试一次: {e}')
             else:
                 logger.error(f'LLM 调用失败: {e}')
                 self.set_conversation(conversation_id, conversation)
+                return '抱歉，AI 服务暂时不可用，请稍后重试。', False
+
+            try:
+                response = self._invoke_llm(conversation, message, _cfg.LLM_MAX_TOKENS)
+                self.set_conversation(conversation_id, conversation)
+                return response, True
+            except Exception as retry_e:
+                logger.error(f'重试仍然失败: {retry_e}')
+                self.set_conversation(conversation_id, conversation)
+                if is_context_error:
+                    return '抱歉，对话上下文过长导致处理失败，请尝试开始新的对话。', False
                 return '抱歉，AI 服务暂时不可用，请稍后重试。', False
