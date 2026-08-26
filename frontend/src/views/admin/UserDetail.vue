@@ -31,16 +31,24 @@
         <span v-else class="info-value">-</span>
       </div>
       <div class="info-row">
+        <span class="info-label">{{ $t('最后使用时间') }}</span>
+        <span class="info-value">{{ user.last_used_at || '-' }}</span>
+      </div>
+      <div class="info-row">
+        <span class="info-label">{{ $t('最后使用 IP') }}</span>
+        <span class="info-value">{{ user.last_used_ip || '-' }}</span>
+      </div>
+      <div class="info-row">
+        <span class="info-label">{{ $t('使用地理位置') }}</span>
+        <span class="info-value">{{ user.last_used_location || '-' }}</span>
+      </div>
+      <div class="info-row" v-if="user.last_login_at">
         <span class="info-label">{{ $t('最后登录时间') }}</span>
-        <span class="info-value">{{ user.last_login_at || '-' }}</span>
+        <span class="info-value">{{ user.last_login_at }}</span>
       </div>
-      <div class="info-row">
+      <div class="info-row" v-if="user.last_login_ip">
         <span class="info-label">{{ $t('最后登录 IP') }}</span>
-        <span class="info-value">{{ user.last_login_ip || '-' }}</span>
-      </div>
-      <div class="info-row">
-        <span class="info-label">{{ $t('登录地理位置') }}</span>
-        <span class="info-value">{{ user.last_login_location || '-' }}</span>
+        <span class="info-value">{{ user.last_login_ip }}{{ user.last_login_location ? ' · ' + user.last_login_location : '' }}</span>
       </div>
       <div class="info-row">
         <span class="info-label">{{ $t('总使用次数') }}</span>

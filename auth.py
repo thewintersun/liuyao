@@ -317,9 +317,10 @@ def register_user(username, password, email=None, agreed_version=None, agreed_at
         new_invite_code = generate_invite_code(db)
 
         db.execute(
-            'INSERT INTO users (username, password_hash, free_uses, email, agreed_version, agreed_at, agreed_ip, invite_code, invited_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+            'INSERT INTO users (username, password_hash, free_uses, email, agreed_version, agreed_at, agreed_ip, invite_code, invited_by, created_at, last_login_ip, last_login_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
             (username, generate_password_hash(password), free_uses, email.strip() if email else '', agreed_version,
-             to_local_str(agreed_at) or agreed_at, agreed_ip, new_invite_code, inviter['id'] if inviter else None, now_str())
+             to_local_str(agreed_at) or agreed_at, agreed_ip, new_invite_code, inviter['id'] if inviter else None, now_str(),
+             agreed_ip, now_str())  # 注册后前端直接持 token 自动登录，视为一次登录
         )
         db.commit()
         user = db.execute('SELECT * FROM users WHERE username = ?', (username,)).fetchone()

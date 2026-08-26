@@ -108,6 +108,13 @@ def get_user_detail(user_id):
         (user_id,)
     ).fetchall()
 
+    # 最后一次实际使用（usage_log 每次 receive/chat 都记录了 ip 和时间，
+    # 比 last_login_* 更能反映用户活跃情况——注册后自动登录，登录事件极少发生）
+    last_use = db.execute(
+        'SELECT created_at, ip FROM usage_log WHERE user_id = ? ORDER BY id DESC LIMIT 1',
+        (user_id,)
+    ).fetchone()
+
     release_db(db)
 
     result = {
@@ -117,8 +124,12 @@ def get_user_detail(user_id):
         'inviter': inviter
     }
 
-    # 查询 IP 地理位置（延迟查询，不在登录时调用）
+    result['last_used_at'] = last_use['created_at'] if last_use else None
+    result['last_used_ip'] = last_use['ip'] if last_use else None
+
+    # 查询 IP 地理位置（延迟查询，不在登录/使用时调用）
     result['last_login_location'] = get_ip_location(user['last_login_ip']) if user['last_login_ip'] else None
+    result['last_used_location'] = get_ip_location(result['last_used_ip']) if result['last_used_ip'] else None
 
     return result
 
