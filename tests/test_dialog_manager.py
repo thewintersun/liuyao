@@ -6,13 +6,13 @@ from dialog_manager import DialogManager
 
 @pytest.fixture
 def dm():
-    """创建 DialogManager，mock 掉 LLM 客户端和 admin_service"""
-    with patch('dialog_manager.DeepseekClient') as MockClient:
-        with patch('dialog_manager.admin_service') as mock_admin:
-            mock_admin.get_prompt.return_value = '你是测试助手'
-            manager = DialogManager()
-            manager.llm_client = MockClient()
-            yield manager
+    """创建 DialogManager，注入 mock 客户端并 mock 掉 admin_service"""
+    with patch('dialog_manager.admin_service') as mock_admin:
+        mock_admin.get_prompt.return_value = '你是测试助手'
+        mock_admin.get_system_config.return_value = None
+        manager = DialogManager()
+        manager.llm_client = MagicMock()
+        yield manager
 
 
 class TestEstimateTokens:
@@ -97,3 +97,46 @@ class TestConversationManagement:
         dm.get_conversation('d')
         assert 'a' not in dm._conversation_dict
         assert 'd' in dm._conversation_dict
+
+
+class TestProviderSwitch:
+    """供应商切换：管理后台配置优先，非法值回退到默认"""
+
+    def _provider_with_config(self, configured):
+        with patch('dialog_manager.admin_service') as mock_admin:
+            mock_admin.get_system_config.return_value = configured
+            return DialogManager.get_provider()
+
+    def test_default_when_unset(self):
+        assert self._provider_with_config(None) == 'deepseek'
+
+    def test_switch_to_glm(self):
+        assert self._provider_with_config('glm') == 'glm'
+
+    def test_case_and_space_tolerant(self):
+        assert self._provider_with_config('  GLM ') == 'glm'
+
+    def test_unknown_falls_back(self):
+        assert self._provider_with_config('not-a-provider') == 'deepseek'
+
+    def test_client_cached_per_provider(self):
+        with patch('dialog_manager.admin_service') as mock_admin:
+            mock_admin.get_system_config.return_value = 'glm'
+            with patch('dialog_manager.LLMFactory') as mock_factory:
+                mock_factory.create.return_value = MagicMock()
+                manager = DialogManager()
+                first = manager._get_client()
+                second = manager._get_client()
+                assert first is second
+                mock_factory.create.assert_called_once_with('glm')
+
+    def test_injected_client_wins(self):
+        """显式注入的客户端优先于工厂创建（测试注入场景）"""
+        with patch('dialog_manager.admin_service') as mock_admin:
+            mock_admin.get_system_config.return_value = 'glm'
+            with patch('dialog_manager.LLMFactory') as mock_factory:
+                manager = DialogManager()
+                injected = MagicMock()
+                manager.llm_client = injected
+                assert manager._get_client() is injected
+                mock_factory.create.assert_not_called()

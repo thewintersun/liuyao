@@ -32,7 +32,7 @@ cd frontend && npm run build    # Build frontend into static/
 cd .. && python gua_app.py      # Serves SPA + API on :9001
 ```
 
-No tests, linting, or formatting tools are configured.
+Tests: `python -m pytest tests/` (pytest, in `tests/`). No linting or formatting tools are configured.
 
 ## Architecture
 
@@ -57,7 +57,7 @@ No tests, linting, or formatting tools are configured.
 
 **Styling** (`src/assets/styles/theme.css`): Dark Chinese aesthetic, 楷体 (Kai) font, max-width 480px mobile-first design. CSS custom properties with gold/black palette (`--color-primary: #F9D47C`, `--color-bg: #141414`).
 
-**API client** (`src/api/index.js`): Axios with 120s timeout, JWT token injection, `X-Lang` header, 401 auto-logout, 3 retries for 5xx errors.
+**API client** (`src/api/index.js`): Axios with 300s timeout (reasoning models can take minutes; `/api/receive/async` + `pollTaskResult` covers long runs), JWT token injection, `X-Lang` header, 401 auto-logout, 3 retries for 5xx errors.
 
 ### Backend (project root)
 
@@ -68,7 +68,9 @@ No tests, linting, or formatting tools are configured.
 **Key modules**:
 - `auth.py` — SQLite DB (users, usage_log, records tables), JWT auth (30-day expiry), werkzeug password hashing, `@require_auth` / `@optional_auth` decorators, credit system.
 - `dialog_manager.py` — AI conversation session manager. LRU cache (max 100 sessions), 24h timeout, 50k token limit. Language-aware system prompts.
-- `llm/` — Factory pattern. `llm/common/config.py` has prompt templates. `llm/deepseek/client.py` implements DeepSeek API (model: `deepseek-v4-flash` — a reasoning model whose `reasoning_tokens` count against `max_tokens`; runtime params come from `config.py`: temp 0.7, max tokens 16384).
+- `llm/` — Factory pattern, two interchangeable providers. `llm/common/config.py` holds prompt templates and per-provider API settings; `llm/common/openai_compat.py` is the shared `OpenAICompatibleClient` base (credentials are passed per call, never via `openai.api_key` globals, so providers can coexist). `llm/deepseek/client.py` → `deepseek-v4-flash`; `llm/glm/client.py` → 智谱 GLM (defaults to the Coding Plan endpoint, `thinking` mode on).
+  - **Both models are reasoning models whose `reasoning_tokens` count against `max_tokens`.** When reasoning exhausts the budget the API returns 200 with empty `content` — `_extract_content()` treats that as failure so `dialog_manager` retries and no credit is deducted. Runtime params live in `config.py`: temp 0.7, max tokens 16384.
+  - **Switching providers**: `system_config.LLM_PROVIDER` (admin UI → 系统配置 → AI 供应商, takes effect immediately) overrides the `LLM_PROVIDER` env default. Only values in `config.LLM_PROVIDERS` are accepted. Check connectivity with `python check_llm.py [provider|all]`.
 - `config.py` — Guest quota (1 free use), registered quota (50 free uses), JWT config.
 - `liuyao_utils.py` — Formats hexagram data for LLM prompt.
 - `captcha_utils.py` — CAPTCHA generation/validation for registration.
@@ -79,7 +81,7 @@ No tests, linting, or formatting tools are configured.
 - Business: `POST /api/receive` (submit hexagram → AI), `POST /api/chat` (follow-up), `POST /api/chat/restore` (restore from saved record)
 - Other: `POST /api/feedback`, `GET /api/config/quota`
 
-**Environment variables** (`.env`): `DEEPSEEK_API_KEY`, `DEEPSEEK_API_BASE`, `EMAIL_ADDRESS`, `EMAIL_PASSWORD`
+**Environment variables** (`.env`, see `.env.example`): `LLM_PROVIDER`, `DEEPSEEK_API_KEY`, `DEEPSEEK_API_BASE`, `GLM_API_KEY`, `GLM_API_BASE`, `GLM_DEFAULT_MODEL`, `GLM_THINKING_ENABLED`, `EMAIL_ADDRESS`, `EMAIL_PASSWORD`
 
 ## Code Conventions
 

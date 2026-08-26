@@ -16,6 +16,15 @@ DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY", "")
 DEEPSEEK_API_BASE = os.getenv("DEEPSEEK_API_BASE", "https://api.deepseek.com")
 DEEPSEEK_DEFAULT_MODEL = "deepseek-v4-flash"
 
+# 智谱 GLM 配置（OpenAI 兼容接口）
+# Coding Plan 端点用包月额度（智谱声明仅限编码场景）；
+# 通用按量计费端点为 https://open.bigmodel.cn/api/paas/v4
+GLM_API_KEY = os.getenv("GLM_API_KEY", "")
+GLM_API_BASE = os.getenv("GLM_API_BASE", "https://open.bigmodel.cn/api/coding/paas/v4")
+GLM_DEFAULT_MODEL = os.getenv("GLM_DEFAULT_MODEL", "glm-4.6")
+# GLM 的推理模式，token 同样计入 max_tokens 预算
+GLM_THINKING_ENABLED = os.getenv("GLM_THINKING_ENABLED", "true").lower() not in ("false", "0", "no")
+
 SYSTEM_PROMPT = """
 【角色】
 你是一位经验丰富的六爻解卦师，擅长用普通人能听懂的白话解答卦象。

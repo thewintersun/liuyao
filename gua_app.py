@@ -791,8 +791,13 @@ def admin_get_config():
 @require_admin
 def admin_update_config():
     data = request.get_json()
-    for key, value in data.items():
-        admin_service.update_system_config(key, str(value))
+    # LLM_PROVIDERS 是只读的可选项列表，不是可写配置
+    data.pop('LLM_PROVIDERS', None)
+    try:
+        for key, value in data.items():
+            admin_service.update_system_config(key, str(value))
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
     return jsonify({"status": "success"})
 
 

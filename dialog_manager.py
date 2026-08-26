@@ -6,7 +6,7 @@ sys.path.insert(0, str(ROOT_DIR))
 
 from llm.common.base import Conversation
 from llm.common.config import SYSTEM_PROMPT
-from llm.deepseek.client import DeepseekClient
+from llm.common.factory import LLMFactory
 import admin_service
 import time
 import uuid
@@ -20,7 +20,9 @@ class DialogManager:
     TOKEN_LIMIT = _cfg.CONVERSATION_TOKEN_LIMIT
 
     def __init__(self):
-        self.llm_client = DeepseekClient()
+        # 客户端惰性创建：启动时不要求所有供应商的 key 都已配置
+        self.llm_client = None      # 显式注入时优先使用（测试用）
+        self._clients = {}          # provider -> client 实例缓存
         self._conversation_dict = OrderedDict()
         self._max_conversations = _cfg.MAX_CONCURRENT_CONVERSATIONS
         self._conversation_timeout = _cfg.CONVERSATION_TIMEOUT_SECONDS
@@ -153,6 +155,26 @@ class DialogManager:
         return new_id
 
     @staticmethod
+    def get_provider() -> str:
+        """当前生效的 LLM 供应商：管理后台配置优先，其次 config.py 默认值"""
+        provider = admin_service.get_system_config('LLM_PROVIDER') or _cfg.LLM_PROVIDER
+        provider = (provider or 'deepseek').strip().lower()
+        if provider not in _cfg.LLM_PROVIDERS:
+            logger.warning(f'未知的 LLM 供应商 {provider!r}，回退到 {_cfg.LLM_PROVIDER}')
+            provider = _cfg.LLM_PROVIDER
+        return provider
+
+    def _get_client(self):
+        """按当前配置取客户端，同一供应商复用实例"""
+        if self.llm_client is not None:
+            return self.llm_client
+        provider = self.get_provider()
+        if provider not in self._clients:
+            self._clients[provider] = LLMFactory.create(provider)
+            logger.info(f'已创建 LLM 客户端: {provider}')
+        return self._clients[provider]
+
+    @staticmethod
     def _rollback_last_round(conversation: Conversation) -> None:
         """移除本轮追加的 assistant/user 消息，避免失败的一轮污染历史"""
         messages = conversation.messages
@@ -164,7 +186,7 @@ class DialogManager:
     def _invoke_llm(self, conversation: Conversation, message: str, max_tokens: int) -> str:
         """调用 LLM 并保证返回非空正文，失败时回滚本轮消息后抛出"""
         try:
-            response = self.llm_client.chat_sync(
+            response = self._get_client().chat_sync(
                 conversation=conversation,
                 user_message=message,
                 temperature=_cfg.LLM_TEMPERATURE,

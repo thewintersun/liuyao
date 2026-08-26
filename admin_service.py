@@ -12,7 +12,8 @@ def _escape_like(s):
     return s.replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_')
 from config import (GUEST_FREE_USES, REGISTERED_FREE_USES,
                      INVITE_VISIT_REWARD, INVITE_REGISTER_REWARD, INVITE_REGISTER_BONUS,
-                     INVITE_MONTHLY_LIMIT, INVITE_IP_DAILY_LIMIT)
+                     INVITE_MONTHLY_LIMIT, INVITE_IP_DAILY_LIMIT,
+                     LLM_PROVIDER, LLM_PROVIDERS)
 from llm.common.config import SYSTEM_PROMPT, LIUYAO_PROMPT
 
 
@@ -175,11 +176,26 @@ def get_system_config(key):
         'INVITE_REGISTER_BONUS': str(INVITE_REGISTER_BONUS),
         'INVITE_MONTHLY_LIMIT': str(INVITE_MONTHLY_LIMIT),
         'INVITE_IP_DAILY_LIMIT': str(INVITE_IP_DAILY_LIMIT),
+        'LLM_PROVIDER': LLM_PROVIDER,
     }
     return defaults.get(key)
 
 
+def validate_system_config(key, value):
+    """校验配置值，非法时返回错误信息，合法返回 None
+
+    LLM_PROVIDER 填错会导致解卦全部失败，必须在写库前拦住。
+    """
+    if key == 'LLM_PROVIDER':
+        if str(value).strip().lower() not in LLM_PROVIDERS:
+            return f"LLM_PROVIDER 只能是 {'/'.join(LLM_PROVIDERS)}"
+    return None
+
+
 def update_system_config(key, value):
+    error = validate_system_config(key, value)
+    if error:
+        raise ValueError(error)
     db = get_db()
     db.execute(
         'INSERT OR REPLACE INTO system_config (key, value, updated_at) VALUES (?, ?, ?)',
@@ -198,6 +214,8 @@ def get_all_configs():
         'INVITE_REGISTER_BONUS': get_system_config('INVITE_REGISTER_BONUS'),
         'INVITE_MONTHLY_LIMIT': get_system_config('INVITE_MONTHLY_LIMIT'),
         'INVITE_IP_DAILY_LIMIT': get_system_config('INVITE_IP_DAILY_LIMIT'),
+        'LLM_PROVIDER': get_system_config('LLM_PROVIDER'),
+        'LLM_PROVIDERS': list(LLM_PROVIDERS),
     }
     return configs
 

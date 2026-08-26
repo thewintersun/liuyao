@@ -55,6 +55,9 @@ MAX_CONCURRENT_CONVERSATIONS = 100       # 最大并发对话数
 CONVERSATION_TIMEOUT_SECONDS = 86400     # 对话超时（24 小时）
 ACTIVE_USER_WINDOW_SECONDS = 600         # 活跃用户判断窗口（10 分钟）
 MAX_RECENT_ROUNDS = 9                    # 首轮之外最多保留轮数
+# LLM 供应商，可在管理后台切换（system_config.LLM_PROVIDER 优先于此默认值）
+LLM_PROVIDER = os.environ.get('LLM_PROVIDER', 'deepseek')
+LLM_PROVIDERS = ('deepseek', 'glm')
 LLM_TEMPERATURE = 0.7
 # deepseek-v4-flash 是推理模型，reasoning_tokens 计入本预算。
 # 4096 时复杂卦例的推理会耗尽预算导致正文为空，故放宽（模型上限 65536）。

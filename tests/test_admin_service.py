@@ -93,3 +93,26 @@ class TestSystemConfig:
         configs = admin_service.get_all_configs()
         assert 'GUEST_FREE_USES' in configs
         assert 'INVITE_MONTHLY_LIMIT' in configs
+
+
+class TestLLMProviderConfig:
+    """LLM_PROVIDER 填错会导致解卦全挂，必须在写库前拦住"""
+
+    def test_default_is_deepseek(self, test_db):
+        assert admin_service.get_system_config('LLM_PROVIDER') == 'deepseek'
+
+    def test_switch_to_glm(self, test_db):
+        admin_service.update_system_config('LLM_PROVIDER', 'glm')
+        assert admin_service.get_system_config('LLM_PROVIDER') == 'glm'
+
+    def test_invalid_provider_rejected(self, test_db):
+        with pytest.raises(ValueError):
+            admin_service.update_system_config('LLM_PROVIDER', 'openai')
+        # 拒绝后不应落库，仍是默认值
+        assert admin_service.get_system_config('LLM_PROVIDER') == 'deepseek'
+
+    def test_all_configs_exposes_provider_options(self, test_db):
+        configs = admin_service.get_all_configs()
+        assert configs['LLM_PROVIDER'] == 'deepseek'
+        assert 'glm' in configs['LLM_PROVIDERS']
+        assert 'deepseek' in configs['LLM_PROVIDERS']

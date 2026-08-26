@@ -1,5 +1,17 @@
 <template>
   <div class="page admin-page">
+    <h3 class="section-title">{{ $t('AI 供应商') }}</h3>
+    <div class="config-card">
+      <div class="config-item">
+        <label class="config-label">{{ $t('当前解卦供应商') }}</label>
+        <select v-model="configs.LLM_PROVIDER" class="config-input">
+          <option v-for="p in providers" :key="p" :value="p">{{ providerLabel(p) }}</option>
+        </select>
+        <p class="config-hint">{{ $t('切换后立即生效，无需重启服务') }}</p>
+      </div>
+    </div>
+
+    <h3 class="section-title">{{ $t('额度配置') }}</h3>
     <div class="config-card">
       <div class="config-item">
         <label class="config-label">{{ $t('游客免费次数') }}</label>
@@ -48,7 +60,14 @@ import { ref, onMounted } from 'vue'
 import { getAdminConfig, updateAdminConfig } from '../../api/index.js'
 import { showToast } from '../../utils/toast.js'
 
+const PROVIDER_LABELS = {
+  deepseek: 'DeepSeek',
+  glm: '智谱 GLM',
+}
+
+const providers = ref(['deepseek', 'glm'])
 const configs = ref({
+  LLM_PROVIDER: 'deepseek',
   GUEST_FREE_USES: 1,
   REGISTERED_FREE_USES: 50,
   INVITE_VISIT_REWARD: 5,
@@ -63,6 +82,10 @@ const saved = ref(false)
 onMounted(async () => {
   try {
     const data = await getAdminConfig()
+    if (Array.isArray(data.configs.LLM_PROVIDERS) && data.configs.LLM_PROVIDERS.length) {
+      providers.value = data.configs.LLM_PROVIDERS
+    }
+    configs.value.LLM_PROVIDER = data.configs.LLM_PROVIDER || 'deepseek'
     configs.value.GUEST_FREE_USES = parseInt(data.configs.GUEST_FREE_USES) || 1
     configs.value.REGISTERED_FREE_USES = parseInt(data.configs.REGISTERED_FREE_USES) || 50
     configs.value.INVITE_VISIT_REWARD = parseInt(data.configs.INVITE_VISIT_REWARD) || 5
@@ -75,6 +98,10 @@ onMounted(async () => {
   }
 })
 
+function providerLabel(p) {
+  return PROVIDER_LABELS[p] || p
+}
+
 async function handleSave() {
   saving.value = true
   saved.value = false
@@ -83,7 +110,7 @@ async function handleSave() {
     saved.value = true
     setTimeout(() => { saved.value = false }, 2000)
   } catch (e) {
-    showToast('保存失败', 'error')
+    showToast(e?.response?.data?.error || '保存失败', 'error')
   } finally {
     saving.value = false
   }
@@ -125,6 +152,15 @@ async function handleSave() {
   padding: 0 12px;
   color: var(--color-text);
   font-size: 16px;
+}
+select.config-input {
+  appearance: none;
+  cursor: pointer;
+}
+.config-hint {
+  color: var(--color-text-secondary);
+  font-size: 12px;
+  margin-top: 8px;
 }
 .save-btn {
   margin-top: 8px;

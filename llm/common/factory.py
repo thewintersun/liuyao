@@ -82,10 +82,16 @@ class LLMFactory:
             logger.warning(f"无法导入LLM类型 {llm_type}: {str(e)}")
 
 
-# 导入并注册DeepSeek客户端
+# 导入并注册内置的LLM客户端
 try:
-    from ..deepseek.client import DeepSeekClient
-    LLMFactory.register("deepseek", DeepSeekClient)
+    from ..deepseek.client import DeepseekClient
+    LLMFactory.register("deepseek", DeepseekClient)
 except ImportError:
-    logger.warning("无法导入DeepSeekClient")
+    logger.warning("无法导入 DeepseekClient")
+
+try:
+    from ..glm.client import GLMClient
+    LLMFactory.register("glm", GLMClient)
+except ImportError:
+    logger.warning("无法导入 GLMClient")
 
