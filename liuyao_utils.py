@@ -1,3 +1,5 @@
+import copy
+
 
 
 liuqin_sheng_mapping_dict = {
@@ -7,12 +9,15 @@ liuqin_sheng_mapping_dict = {
     '财': '官',
     '官': '父'
 }
+# 六亲相克：父母克子孙、子孙克官鬼、官鬼克兄弟、兄弟克妻财、妻财克父母。
+# 注意不要写成生表的反向（那是「谁生我」），否则忌神会取成泄气之神、
+# 仇神会取成用神自己。
 liuqin_ke_mapping_dict = {
-    '父': '官',
-    '兄': '父',
-    '孙': '兄',
-    '财': '孙',
-    '官': '财'
+    '父': '孙',
+    '孙': '官',
+    '官': '兄',
+    '兄': '财',
+    '财': '父'
 }
 
 liuqin_mapping_dict = {
@@ -22,13 +27,16 @@ liuqin_mapping_dict = {
     '财': '妻财',
     '孙': '子孙'
 }
+# 「自占自身」不在此表中：自占以世爻为用神，由 orgnize_data 单独分支处理。
+# 曾把它映射到兄弟爻，但兄弟代表的是同辈与竞争者，不能代表求测者本人。
+SELF_DIVINATION = '自占自身'
+
 liuqin_reverse_mapping_dict = {
     '父母': '父',
     '兄弟': '兄',
     '官鬼': '官',
     '妻财': '财',
     '子孙': '孙',
-    '自占自身': '兄',
 }
 
 chong_mapping_dict = {
@@ -77,11 +85,19 @@ sanhe_mapping_dict = {
 }
 
 #补全爻中六亲的说法，比如：父戌土，补全为父母戌土
+#返回新列表而不原地修改：入参往往是 gua_xiang_info 里的列表，改坏了会连带存库的数据。
+#对已是全称的输入保持幂等，否则再跑一次会补成「父母母戌土」。
 def complete_liuqin(liuqin):
-    for i in range(len(liuqin)):
-        if liuqin[i][0] in liuqin_mapping_dict:
-            liuqin[i] = liuqin_mapping_dict[liuqin[i][0]] + liuqin[i][1:]
-    return liuqin
+    full_names = set(liuqin_mapping_dict.values())
+    result = []
+    for item in liuqin:
+        if item[:2] in full_names:
+            result.append(item)
+        elif item and item[0] in liuqin_mapping_dict:
+            result.append(liuqin_mapping_dict[item[0]] + item[1:])
+        else:
+            result.append(item)
+    return result
 
 # 将字符串中的简短六亲补全，比如：父，补全为父母
 def complete_liuqin_str(liuqin_str):
@@ -228,7 +244,9 @@ def get_yjc_pos_list(main_gua_liuqin, yongshen_char):
     return yuanshen_pos_list, jishen_pos_list, choushen_pos_list
 
 def orgnize_data(data):
-    gua_xiang_info = data['gua_xiang_info']
+    # 深拷贝：下面会 reverse 六亲列表，不能改到调用方的 gua_xiang_info——
+    # 它随后要原样存库，被改坏会导致重建首条消息时崩在六亲首字上
+    gua_xiang_info = copy.deepcopy(data['gua_xiang_info'])
     background_text = data['background']
     category_title = data['category']['title']
 
@@ -241,7 +259,6 @@ def orgnize_data(data):
     biangua_liuqin.reverse()
 
     dyao_display = gua_xiang_info['dyao_display']
-    yongshen_char = liuqin_reverse_mapping_dict[category_title]
 
     month_dizhi = gua_xiang_info['timecn'][0][4]
     day_dizhi = gua_xiang_info['timecn'][0][7]
@@ -257,7 +274,17 @@ def orgnize_data(data):
     maingua_liuchong = gua_xiang_info['maingua_liuchong']
     biangua_liuchong = gua_xiang_info['biangua_liuchong']
 
-    ys_is_main, ys_pos,yongshen_description = get_yongshen_str(maingua_liuqin,
+    if category_title == SELF_DIVINATION:
+        # 自占自身以世爻为用神。shiyao_weizhi 的索引基准是 reverse 之后的
+        # maingua_liuqin（0 为初爻），此处可直接索引。
+        # 元神/忌神/仇神仍按世爻实际所属六亲推算。
+        ys_is_main = 1
+        ys_pos = shiyao_weizhi_int
+        yongshen_char = maingua_liuqin[ys_pos][0]
+        yongshen_description = "自占自身，取世爻第" + str(ys_pos + 1) + "爻:" + maingua_liuqin[ys_pos] + "为用神。"
+    else:
+        yongshen_char = liuqin_reverse_mapping_dict[category_title]
+        ys_is_main, ys_pos, yongshen_description = get_yongshen_str(maingua_liuqin,
                                             fugua_liuqin,
                                             dyao_display,
                                             month_dizhi,

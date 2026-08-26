@@ -447,12 +447,15 @@ server {
         proxy_pass http://127.0.0.1:9001;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_read_timeout 120s;
     }
 }
 ```
 
 > 注意：AI 解卦接口响应时间较长（约 30 秒），需要设置较大的代理超时时间。
+
+> **重要**：部署在反向代理后面时，必须在 `.env` 中设置 `BEHIND_PROXY=true`，后端才会从 `X-Forwarded-For` / `X-Real-IP` 头中读取真实客户端 IP。否则日志和 IP 限流看到的 IP 全部是 `127.0.0.1`。本地直连开发时保持 `false`（防止客户端伪造头绕过限流）。
 
 ---
 
@@ -466,6 +469,7 @@ server {
 | `DEEPSEEK_API_BASE` | DeepSeek API 地址 |
 | `EMAIL_ADDRESS` | 反馈邮件发送地址 (163 邮箱) |
 | `EMAIL_PASSWORD` | 邮箱授权码 |
+| `BEHIND_PROXY` | 是否部署在可信反向代理后（`true`/`false`，默认 `false`）。反代部署时须设为 `true`，否则获取到的客户端 IP 为 `127.0.0.1` |
 
 ### Vite 开发配置 (`vite.config.js`)
 

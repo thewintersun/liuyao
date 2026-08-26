@@ -12,6 +12,9 @@
  * 三项留空时，设置页不会显示捐助入口（避免露出半成品）。
  */
 export const DONATE_CONFIG = {
+//wechatQr: '/donate/wechat.jpg',
+//  alipayQr: '/donate/alipay.jpg',
+//  alipayUrl: 'https://qr.alipay.com/fkx18472lcidibahhwbmlc7'
   wechatQr: '',
   alipayQr: '',
   alipayUrl: ''

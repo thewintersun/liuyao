@@ -27,20 +27,31 @@
 <script setup>
 import { ref } from 'vue'
 import { useRouter } from 'vue-router'
+import { t } from '../utils/locale.js'
+import { showToast } from '../utils/toast.js'
 
 const router = useRouter()
-const selectedIndex = ref(5) // default: 自占自身
+// 不预选：用神完全由这里决定，选错会让整卦分析取错爻，
+// 预设一个默认值会让相当一部分人不看说明直接提交。
+const selectedIndex = ref(-1)
 
+// 描述按「你要问什么就选它」来写，而不是罗列六亲的抽象含义——
+// 用神完全由这里的选择决定，选错会让整卦分析取错爻。
+// 兄弟与自占自身两条带反向提示，拦住最常见的误选。
 const categories = [
-  { title: '父母', desc: '长辈、房子、车子、合同、学习、考试、建筑、公司等' },
-  { title: '官鬼', desc: '工作、升职、官司、男朋友，老公、疾病、领导、恶人、烦恼等' },
-  { title: '兄弟', desc: '兄弟、平辈、同事，竞争对手、分财产、合伙人、朋友等' },
-  { title: '妻财', desc: '钱财、收入、女朋友、老婆、财务、工资、投资、物资等' },
-  { title: '子孙', desc: '孩子、晚辈、自己的学生、宠物、医药、药品、娱乐、求平安等' },
-  { title: '自占自身', desc: '自己摇卦占自身，如：自己问自己身体状况等' },
+  { title: '父母', desc: '父母长辈、房屋、车辆、合同文书、证书、考试学业、搬迁' },
+  { title: '官鬼', desc: '工作职位、求职、升职、考核、官司、领导上司；女占男友或丈夫；疾病的病情' },
+  { title: '兄弟', desc: '兄弟姐妹、朋友同事、合作伙伴本人如何。注意：问自己能否赚到钱请选「妻财」，不要选这里' },
+  { title: '妻财', desc: '求财必选：赚钱、收入、工资、投资、生意、创业收益、买卖、要账；男占女友或妻子' },
+  { title: '子孙', desc: '子女晚辈、学生、宠物；求平安、消灾解忧；看病能否治好、用药是否对症' },
+  { title: '自占自身', desc: '单纯问自己近期整体状态、运势走向。若已明确问某件事（钱、工作、感情、健康），请选其他类别' },
 ]
 
 function confirm() {
+  if (selectedIndex.value < 0) {
+    showToast(t('请先选择所问之事的类别'), 'warning')
+    return
+  }
   sessionStorage.setItem('liuyao_category', JSON.stringify({
     title: categories[selectedIndex.value].title,
     index: selectedIndex.value
