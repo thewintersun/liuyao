@@ -2,7 +2,7 @@ import axios from 'axios'
 import { getLang } from '../utils/locale.js'
 
 const api = axios.create({
-  timeout: 300000
+  timeout: 600000
 })
 
 // 请求拦截器：附加 token + 语言
@@ -99,8 +99,9 @@ export async function resetPassword(token, password) {
 
 // ========== 业务接口 ==========
 
-// 轮询异步任务结果，每 2 秒查询一次，最多 5 分钟
-async function pollTaskResult(taskId, maxWait = 300000) {
+// 轮询异步任务结果，每 5 秒查询一次，最多 10 分钟
+// GLM 开着 thinking 时单次解卦可能超过 5 分钟，故放宽到 10 分钟
+async function pollTaskResult(taskId, maxWait = 600000) {
   const start = Date.now()
   while (Date.now() - start < maxWait) {
     await new Promise(resolve => setTimeout(resolve, 5000))

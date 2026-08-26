@@ -30,13 +30,16 @@ class TestFactory:
 
 class TestClientConfig:
     def test_deepseek_defaults(self):
-        c = DeepseekClient(api_key='dk')
+        with patch('llm.deepseek.client.DEEPSEEK_API_BASE', 'https://api.deepseek.com'),              patch('llm.deepseek.client.DEEPSEEK_DEFAULT_MODEL', 'deepseek-v4-flash'):
+            c = DeepseekClient(api_key='dk')
         assert c.api_base == 'https://api.deepseek.com'
         assert c.model == 'deepseek-v4-flash'
         assert c.extra_params == {}
 
     def test_glm_defaults_to_coding_endpoint(self):
-        c = GLMClient(api_key='gk')
+        """测代码默认值，patch 掉常量以免被本机 .env 的覆盖值影响"""
+        with patch('llm.glm.client.GLM_API_BASE', 'https://open.bigmodel.cn/api/coding/paas/v4'),              patch('llm.glm.client.GLM_DEFAULT_MODEL', 'glm-4.6'):
+            c = GLMClient(api_key='gk')
         assert c.api_base.endswith('/api/coding/paas/v4')
         assert c.model.startswith('glm-')
 
@@ -48,9 +51,16 @@ class TestClientConfig:
         c = GLMClient(api_key='gk', thinking=False)
         assert c.extra_params['thinking'] == {'type': 'disabled'}
 
-    def test_missing_key_rejected(self):
-        with pytest.raises(ValueError):
-            GLMClient(api_key='', api_base='x', model='y')
+    @pytest.mark.parametrize('module_attr, factory', [
+        ('llm.glm.client.GLM_API_KEY', GLMClient),
+        ('llm.deepseek.client.DEEPSEEK_API_KEY', DeepseekClient),
+    ])
+    def test_missing_key_rejected(self, module_attr, factory):
+        """未配置 key 时必须拒绝创建。patch 常量而非传空串——
+        传空串会回落到 .env，测试结果就取决于本机是否配了 key"""
+        with patch(module_attr, ''):
+            with pytest.raises(ValueError):
+                factory()
 
 
 class TestNoGlobalStateLeak:
@@ -58,7 +68,9 @@ class TestNoGlobalStateLeak:
 
     def test_credentials_passed_per_call(self):
         ds = DeepseekClient(api_key='ds-key', api_base='https://api.deepseek.com')
-        glm = GLMClient(api_key='glm-key', api_base='https://open.bigmodel.cn/api/coding/paas/v4')
+        # 显式传 thinking，否则取值依赖本机 .env 的 GLM_THINKING_ENABLED
+        glm = GLMClient(api_key='glm-key', api_base='https://open.bigmodel.cn/api/coding/paas/v4',
+                        thinking=True)
 
         seen = []
         with patch('openai.ChatCompletion.create', side_effect=lambda **kw: (seen.append(kw), _fake_response('答'))[1]):

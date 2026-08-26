@@ -59,14 +59,16 @@ MAX_RECENT_ROUNDS = 9                    # 首轮之外最多保留轮数
 LLM_PROVIDER = os.environ.get('LLM_PROVIDER', 'deepseek')
 LLM_PROVIDERS = ('deepseek', 'glm')
 LLM_TEMPERATURE = 0.7
-# deepseek-v4-flash 是推理模型，reasoning_tokens 计入本预算。
-# 4096 时复杂卦例的推理会耗尽预算导致正文为空，故放宽（模型上限 65536）。
-LLM_MAX_TOKENS = 16384
+# 两家的模型都是推理模型，reasoning_tokens 计入本预算，耗尽会导致正文为空或被截断。
+# 4096 时 DeepSeek 复杂卦例即会踩中；16384 时 GLM-5.2 实测仍有约两成请求
+# 被推理吃光预算（曾出现 16125/16384 全花在推理上）。故放宽到 32768（模型上限 65536）。
+LLM_MAX_TOKENS = 32768
 LLM_RETRY_ON_FAILURE = True              # LLM 调用失败（含空回复）时自动重试一次
 CHAT_RESTORE_MAX_MESSAGES = 100          # 恢复对话最大消息数
 
 # ========== 异步任务 ==========
-ASYNC_TASK_TIMEOUT_SECONDS = 600  # 10 分钟
+# 必须大于前端 pollTaskResult 的 maxWait（600s），否则前端还在轮询时任务已被清理
+ASYNC_TASK_TIMEOUT_SECONDS = 900  # 15 分钟
 
 # ========== 管理后台分页 ==========
 ADMIN_DEFAULT_PER_PAGE = 20

@@ -19,8 +19,9 @@ worker_class = "gthread"
 graceful_timeout = 300
 
 # timeout: worker 响应超时（秒），超过此时间 master 会强制杀死 worker
-#   设为 600 秒，防止极端情况下 LLM 无响应导致 worker 假死
-timeout = 600
+#   需高于前端等待上限（axios 600 秒 / 轮询 600 秒），否则前端还在等，worker 已被杀
+#   设为 900 秒，防止极端情况下 LLM 无响应导致 worker 假死
+timeout = 900
 
 # 日志
 accesslog = "-"   # 输出到 stdout（systemd 会捕获到 journal）
